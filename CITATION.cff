@@ -4,7 +4,7 @@ authors:
 - family-names: "de Haan"
   given-names: "Daniel"
   orcid: "https://orcid.org/0000-0000-0000-0000"
-title: "Benchmarking spare parts demand forecasting for intermittent demand"
+title: "GitHub repository for benchmarking spare parts demand forecasting for intermittent demand"
 version: 1.0.0
 date-released: 2021-09-20
 url: "https://github.com/danieldehaan96/spdf"
