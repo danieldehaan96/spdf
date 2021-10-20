@@ -112,7 +112,6 @@ proc.time() - ptm
 # SBA on all data sets. 
 ptm <- proc.time()
 sbaSIM1 <- data.frc(trainSIM1, method="crost", h=18, w=NULL, type="sba",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
-proc.time() - ptm
 sbaSIM2 <- data.frc(trainSIM2, method="crost", h=18, w=NULL, type="sba",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
 sbaSIM3 <- data.frc(trainSIM3, method="crost", h=18, w=NULL, type="sba",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
 sbaSIM4 <- data.frc(trainSIM4, method="crost", h=18, w=NULL, type="sba",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
