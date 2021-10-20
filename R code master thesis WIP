@@ -1,24 +1,168 @@
 
 #R script for Master Thesis Daniel de Haan
 
+###   CODE   ###
+
+# Libraries used.
 library(xlsx)
 library(tsintermittent)
-# Simulated time series data
+library(lightgbm)
+library(readxl)
+library(boot)
+library(expm)
+library(igraph)
+library(matlab)
+library(markovchain)
+library(Rcpp)
+library(TraMineR)
 
-# Set seed for reproducibility
-set.seed(8377)  
+# Set seed for reproducibility.
+set.seed(8377)                        
 
-# Applying the simulation from tsintermittent package for the four simulated data sets.
-SIM1 <- simID(n=6500, obs=60, idi=1, cv2=0.75, level=10)
-SIM2 <- simID(n=6500, obs=60, idi=1.5, cv2=0.8, level=10)
-SIM3 <- simID(n=6500, obs=60, idi=1.05, cv2=0.3, level=10)
-SIM4 <- simID(n=6500, obs=60, idi=1.45, cv2=0.25, level=10)
+# Simulating the four simulated data sets.
+# SIM1 <- simID(n=6500, obs=60, idi=1, cv2=0.75, level=10)
+# SIM2 <- simID(n=6500, obs=60, idi=1.5, cv2=0.8, level=10)
+# SIM3 <- simID(n=6500, obs=60, idi=1.05, cv2=0.3, level=10)
+# SIM4 <- simID(n=6500, obs=60, idi=1.45, cv2=0.25, level=10)
 
-# Saving as excel files for easy reproducing 
-write.xlsx(SIM1, "c:/Daan/SIM1.xlsx") 
-write.xlsx(SIM2, "c:/Daan/SIM2.xlsx") 
-write.xlsx(SIM3, "c:/Daan/SIM3.xlsx")
-write.xlsx(SIM4, "c:/Daan/SIM4.xlsx")
+# Saving them as Excel files for simple calculations.
+# write.xlsx(SIM1, "c:/Daan/SIM1.xlsx")
+# write.xlsx(SIM2, "c:/Daan/SIM2.xlsx")
+# write.xlsx(SIM3, "c:/Daan/SIM3.xlsx")
+# write.xlsx(SIM4, "c:/Daan/SIM42.xlsx")
+
+# Importing the simulated and industrial data sets.
+SIM1 <- as.data.frame(read_excel("C:/Daan/SIM1.xlsx"))
+SIM2 <- as.data.frame(read_excel("C:/Daan/SIM2.xlsx"))
+SIM3 <- as.data.frame(read_excel("C:/Daan/SIM3.xlsx"))
+SIM4 <- as.data.frame(read_excel("C:/Daan/SIM4.xlsx"))
+
+MAN <- as.data.frame(read_excel("C:/Daan/MAN.xlsx", sheet = "GOEIE"))
+BRAF <- as.data.frame(t(read_excel("C:/Daan/BRAF.xls", sheet = "GOEIE")))[-c(1), ]
+AUTO <- as.data.frame(t(read_excel("C:/Daan/AUTO.xls", sheet = "GOEIE")))[-c(1), ]
+OIL <- as.data.frame(t(read_excel("C:/Daan/OIL.xls", sheet = "GOEIE")))[-c(1), ]
+
+# Creating the test and train data sets.
+sampleSIM1 = round(nrow(SIM1)*.70) # This creates the split point at 0.70.
+# As the sample size is the same for all simulated data sets, 
+# the sample from SIM1 can just be used for all SIM data sets.
+trainSIM1 <- SIM1[1:(sampleSIM1), ]
+testSIM1 <- SIM1[-(1:(sampleSIM1)), ]
+
+trainSIM2 <- SIM2[1:(sampleSIM1), ]
+testSIM2 <- SIM2[-(1:(sampleSIM1)), ]
+
+trainSIM3 <- SIM3[1:(sampleSIM1), ]
+testSIM3 <- SIM3[-(1:(sampleSIM1)), ]
+
+trainSIM4 <- SIM4[1:(sampleSIM1), ]
+testSIM4 <- SIM4[-(1:(sampleSIM1)), ]
+
+# The split point is established for the industrial data sets individually.
+sampleMAN = round(nrow(MAN)*.70)
+trainMAN <- MAN[1:(sampleMAN), ]
+testMAN <- MAN[-(1:(sampleMAN)), ]
+
+sampleBRAF = round(nrow(BRAF)*.70)
+trainBRAF <- BRAF[1:(sampleBRAF), ]
+testBRAF <- BRAF[-(1:(sampleBRAF)), ]
+
+sampleAUTO = round(nrow(AUTO)*.70)
+trainAUTO <- AUTO[1:(sampleAUTO), ]
+testAUTO <- AUTO[-(1:(sampleAUTO)), ]
+
+sampleOIL = round(nrow(OIL)*.70)
+trainOIL <- OIL[1:(sampleOIL), ]
+testOIL <- OIL[-(1:(sampleOIL)), ]
+
+# The forecast horizon is set to the amount of periods in the test sample.
+
+# Croston on all data sets. 
+ptm <- proc.time()
+CrostonSIM1 <- data.frc(trainSIM1, method="crost",h=18, w=0.1,nop=2, type="croston",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+CrostonSIM2 <- data.frc(trainSIM2, method="crost", h=18, w=NULL,nop=2, type="croston",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+CrostonSIM3 <- data.frc(trainSIM3, method="crost", h=18, w=NULL,nop=2, type="croston",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+CrostonSIM4 <- data.frc(trainSIM4, method="crost", h=18, w=NULL,nop=2, type="croston",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+
+CrostonMAN <- data.frc(trainMAN, method="crost", h=45, w=NULL,nop=2, type="croston",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+CrostonBRAF <- data.frc(trainBRAF, method="crost", h=25, w=NULL,nop=2, type="croston",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+CrostonAUTO <- data.frc(trainAUTO, method="crost", h=7, w=NULL,nop=2, type="croston",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+CrostonOIL <- data.frc(trainOIL, method="crost", h=17, w=NULL,nop=2, type="croston",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+
+print("time Croston total")
+proc.time() - ptm
 
 
+# Simple Exponential Smoothing on all data sets.
+ptm <- proc.time()
+sesSIM1 <- data.frc(trainSIM1, method="sexsm",h=18, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+sesSIM2 <- data.frc(trainSIM2, method="sexsm", h=18, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+sesSIM3 <- data.frc(trainSIM3, method="sexsm", h=18, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+sesSIM4 <- data.frc(trainSIM4, method="sexsm", h=18, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+
+sesMAN <- data.frc(trainMAN, method="sexsm", h=45, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+sesBRAF <- data.frc(trainBRAF, method="sexsm", h=25, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+sesAUTO <- data.frc(trainAUTO, method="sexsm", h=7, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+sesOIL <- data.frc(trainOIL, method="sexsm", h=17, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+
+print("time SES total")
+proc.time() - ptm
+
+
+# SBA on all data sets. 
+ptm <- proc.time()
+sbaSIM1 <- data.frc(trainSIM1, method="crost", h=18, w=NULL, type="sba",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+proc.time() - ptm
+sbaSIM2 <- data.frc(trainSIM2, method="crost", h=18, w=NULL, type="sba",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+sbaSIM3 <- data.frc(trainSIM3, method="crost", h=18, w=NULL, type="sba",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+sbaSIM4 <- data.frc(trainSIM4, method="crost", h=18, w=NULL, type="sba",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+
+sbaMAN <- data.frc(trainMAN, method="crost", h=45, w=NULL, type="sba",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+sbaBRAF <- data.frc(trainBRAF, method="crost", h=25, w=NULL, type="sba",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+sbaAUTO <- data.frc(trainAUTO, method="crost", h=7, w=NULL, type="sba",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+sbaOIL <- data.frc(trainOIL, method="crost", h=17, w=NULL, type="sba",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+
+print("time SBA total")
+proc.time() - ptm
+
+# TSB on all data sets. 
+ptm <- proc.time()
+tsbSIM1 <- data.frc(trainSIM1, method="tsb", h=18, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+tsbSIM2 <- data.frc(trainSIM2, method="tsb", h=18, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+tsbSIM3 <- data.frc(trainSIM3, method="tsb", h=18, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+tsbSIM4 <- data.frc(trainSIM4, method="tsb", h=18, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+
+tsbMAN <- data.frc(trainMAN, method="tsb", h=45, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+tsbBRAF <- data.frc(trainBRAF, method="tsb", h=25, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+tsbAUTO <- data.frc(trainAUTO, method="tsb", h=7, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+tsbOIL <- data.frc(trainOIL, method="tsb", h=17, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+
+print("time TSB total")
+proc.time() - ptm
+
+# Willemain bootstrapping on all data sets.
+
+seqSIM1 <- seqdef(SIM1)
+seqSIM1[seqSIM1 != 0] <- 1
+seqSIM1 <- seqdef(seqSIM1)
+transprobSIM1 <- seqtrate(seqSIM1)
+statesNames=c(1)
+mcSIM1<-new("markovchain", transitionMatrix=matrix(transprobSIM1,byrow=TRUE,
+                                                nrow=1, dimnames=list(statesNames,statesNames)))
+mcSIM1prediction <- markovchainSequence(n=14, markovchain=mcA, include=TRUE)
+
+seqSIM4 <- seqdef(SIM4)
+seqSIM4[seqSIM4 != 0] <- 1
+seqSIM4 <- seqdef(seqSIM4)
+transprobSIM4 <- seqtrate(seqSIM4)
+statesNames=c(0,1)
+mcSIM4<-new("markovchain", transitionMatrix=matrix(transprobSIM4,
+                                                   nrow=2, dimnames=list(statesNames,statesNames)))
+mcSIM4prediction <- markovchainSequence(n=14, markovchain=mcSIM4, include=TRUE)
+
+# Machine learning method on all data sets.
+
+
+
+# LightGBM method on all data sets.
 
