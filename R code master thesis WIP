@@ -141,25 +141,579 @@ proc.time() - ptm
 
 # Willemain bootstrapping on all data sets.
 
-seqSIM1 <- seqdef(SIM1)
-seqSIM1[seqSIM1 != 0] <- 1
+# Create a running index and timer.
+i=1
+y=1
+ptm <- proc.time()
+
+# Defining state names for the Markov Chain.
+# Defining the data sets as sequences and replacing the nonzeroes with 1's.
+seqSIM1 <- seqdef(trainSIM1)
+seqSIM1[trainSIM1 != 0] <- 1
 seqSIM1 <- seqdef(seqSIM1)
-transprobSIM1 <- seqtrate(seqSIM1)
-statesNames=c(1)
-mcSIM1<-new("markovchain", transitionMatrix=matrix(transprobSIM1,byrow=TRUE,
-                                                nrow=1, dimnames=list(statesNames,statesNames)))
-mcSIM1prediction <- markovchainSequence(n=14, markovchain=mcA, include=TRUE)
 
-seqSIM4 <- seqdef(SIM4)
-seqSIM4[seqSIM4 != 0] <- 1
+seqSIM2 <- seqdef(trainSIM2)
+seqSIM2[trainSIM2 != 0] <- 1
+seqSIM2 <- seqdef(seqSIM2)
+
+seqSIM3 <- seqdef(trainSIM3)
+seqSIM3[trainSIM3 != 0] <- 1
+seqSIM3 <- seqdef(seqSIM3)
+
+seqSIM4 <- seqdef(trainSIM4)
+seqSIM4[trainSIM4 != 0] <- 1
 seqSIM4 <- seqdef(seqSIM4)
-transprobSIM4 <- seqtrate(seqSIM4)
-statesNames=c(0,1)
-mcSIM4<-new("markovchain", transitionMatrix=matrix(transprobSIM4,
-                                                   nrow=2, dimnames=list(statesNames,statesNames)))
-mcSIM4prediction <- markovchainSequence(n=14, markovchain=mcSIM4, include=TRUE)
 
-# Machine learning method on all data sets.
+seqMAN <- seqdef(trainMAN)
+seqMAN[trainMAN != 0] <- 1
+seqMAN <- seqdef(seqMAN)
+
+seqBRAF <- seqdef(trainBRAF)
+seqBRAF[trainBRAF != 0] <- 1
+seqBRAF <- seqdef(seqBRAF)
+
+seqAUTO <- seqdef(trainAUTO)
+seqAUTO[trainAUTO != 0] <- 1
+seqAUTO <- seqdef(seqAUTO)
+
+seqOIL <- seqdef(trainOIL)
+seqOIL[trainOIL != 0] <- 1
+seqOIL[seqOIL != 1] <- 0
+seqOIL <- seqdef(seqOIL)
+
+# Establishing output variables for each data set. 
+ltdSIM1=0
+WillemainSIM1=0
+WillemainSDSIM1=0
+
+ltdSIM2=0
+WillemainSIM2=0
+WillemainSDSIM2=0
+
+ltdSIM3=0
+WillemainSIM3=0
+WillemainSDSIM3=0
+
+ltdSIM4=0
+WillemainSIM4=0
+WillemainSDSIM4=0
+
+ltdMAN=0
+WillemainMAN=0
+WillemainSDMAN=0
+
+ltdBRAF=0
+WillemainBRAF=0
+WillemainSDBRAF=0
+
+ltdAUTO=0
+WillemainAUTO=0
+WillemainSDAUTO=0
+
+ltdOIL=0
+WillemainOIL=0
+WillemainSDOIL=0
+
+# Willemain outputs for each data set.
+ptm <- proc.time()
+
+# SIM1
+statesNames=c(1) # SIM1 has no zeroes, so a 1x1 matrix is used here instead of the 2x2 for the other transition probability matrices.
+i=1
+y=1
+for(i in 1:ncol(seqSIM1)){
+  leadtime <- 1
+  transprob <- createSequenceMatrix(
+    seqSIM1[[i]],
+    toRowProbs = TRUE,
+    sanitize = FALSE
+  )
+  mc<-new("markovchain", transitionMatrix=matrix((transprob),byrow=TRUE,
+                                                 nrow=1, dimnames=list(statesNames,statesNames)))
+  for (y in 1:10){
+    mcprediction <- as.numeric(markovchainSequence(n=leadtime, markovchain=mc,t0 = tail(seqSIM1[[i]], n=1),include.t0 = FALSE))
+    nonzeroamount <- length(mcprediction[mcprediction != 0])
+    nonzeroes <- trainSIM1[[i]]
+    mcprediction[mcprediction != 0] <- sample(nonzeroes[nonzeroes != 0], size=nonzeroamount)
+    mcprediction[mcprediction != 0] <- 1 + round(mcprediction[mcprediction != 0] + rnorm(1)*sqrt(mcprediction[mcprediction != 0]))
+    ltdSIM1[[y]] <- sum(mcprediction)
+  }
+  WillemainSIM1[[i]] <- mean(ltdSIM1)
+  WillemainSDSIM1[[i]] <- sd(ltdSIM1)
+}
+
+# SIM2
+statesNames=c(0,1)
+i=1
+y=1
+for(i in 1:ncol(seqSIM2)){
+  leadtime <- 1
+  transprob <- createSequenceMatrix(
+    seqSIM2[[i]],
+    toRowProbs = TRUE,
+    sanitize = FALSE
+  )
+  mc<-new("markovchain", transitionMatrix=matrix((transprob),
+                                                 nrow=2, dimnames=list(statesNames,statesNames)))
+  for (y in 1:10){
+    mcprediction <- as.numeric(markovchainSequence(n=leadtime, markovchain=mc,t0 = tail(seqSIM2[[i]], n=1),include.t0 = FALSE))
+    nonzeroamount <- length(mcprediction[mcprediction != 0])
+    nonzeroes <- trainSIM2[[i]]
+    mcprediction[mcprediction != 0] <- sample(nonzeroes[nonzeroes != 0], size=nonzeroamount)
+    mcprediction[mcprediction != 0] <- 1 + round(mcprediction[mcprediction != 0] + rnorm(1)*sqrt(mcprediction[mcprediction != 0]))
+    ltdSIM2[[y]] <- sum(mcprediction)
+  }
+  WillemainSIM2[[i]] <- mean(ltdSIM2)
+  WillemainSDSIM2[[i]] <- sd(ltdSIM2)
+}
+
+# SIM3
+# Items with only nonzeroes and one zero at the end, breaking the transition probability matrix. 
+# These items were replaced with another item from the data set. 
+seqSIM3[[158]] <- seqSIM3[[157]]
+seqSIM3[[524]] <- seqSIM3[[157]]
+seqSIM3[[666]] <- seqSIM3[[157]]
+seqSIM3[[692]] <- seqSIM3[[157]]
+seqSIM3[[751]] <- seqSIM3[[157]]
+seqSIM3[[795]] <- seqSIM3[[157]]
+seqSIM3[[843]] <- seqSIM3[[157]]
+seqSIM3[[1252]] <- seqSIM3[[157]]
+seqSIM3[[1503]] <- seqSIM3[[157]]
+seqSIM3[[1555]] <- seqSIM3[[157]]
+seqSIM3[[1650]] <- seqSIM3[[157]]
+seqSIM3[[1893]] <- seqSIM3[[157]]
+seqSIM3[[2069]] <- seqSIM3[[157]]
+seqSIM3[[2381]] <- seqSIM3[[157]]
+seqSIM3[[2414]] <- seqSIM3[[157]]
+seqSIM3[[2451]] <- seqSIM3[[157]]
+seqSIM3[[2623]] <- seqSIM3[[157]]
+seqSIM3[[2700]] <- seqSIM3[[157]]
+seqSIM3[[2809]] <- seqSIM3[[157]]
+seqSIM3[[3011]] <- seqSIM3[[157]]
+seqSIM3[[3406]] <- seqSIM3[[157]]
+seqSIM3[[3520]] <- seqSIM3[[157]]
+seqSIM3[[3668]] <- seqSIM3[[157]]
+seqSIM3[[3670]] <- seqSIM3[[157]]
+seqSIM3[[3701]] <- seqSIM3[[157]]
+seqSIM3[[4155]] <- seqSIM3[[157]]
+seqSIM3[[4807]] <- seqSIM3[[157]]
+seqSIM3[[4841]] <- seqSIM3[[157]]
+seqSIM3[[5143]] <- seqSIM3[[157]]
+seqSIM3[[5269]] <- seqSIM3[[157]]
+seqSIM3[[5841]] <- seqSIM3[[157]]
+seqSIM3[[5860]] <- seqSIM3[[157]]
+seqSIM3[[6004]] <- seqSIM3[[157]]
+seqSIM3[[6294]] <- seqSIM3[[157]]
+seqSIM3[[6371]] <- seqSIM3[[157]]
+seqSIM3[[6499]] <- seqSIM3[[157]]
+
+i=1
+y=1
+for(i in 1:ncol(seqSIM3)){
+  leadtime <- 1
+  statesNames=c(0,1)
+  transprob <- createSequenceMatrix(
+    seqSIM3[[i]],
+    toRowProbs = TRUE,
+    sanitize = FALSE
+  )
+  if(length(transprob)!=1){
+  mc<-new("markovchain", transitionMatrix=matrix((transprob),
+                                                 nrow=2, dimnames=list(statesNames,statesNames)))
+  for (y in 1:10){
+    mcprediction <- as.numeric(markovchainSequence(n=leadtime, markovchain=mc,t0 = tail(seqSIM3[[i]], n=1),include.t0 = FALSE))
+    nonzeroamount <- length(mcprediction[mcprediction != 0])
+    nonzeroes <- trainSIM3[[i]]
+    mcprediction[mcprediction != 0] <- sample(nonzeroes[nonzeroes != 0], size=nonzeroamount)
+    mcprediction[mcprediction != 0] <- 1 + round(mcprediction[mcprediction != 0] + rnorm(1)*sqrt(mcprediction[mcprediction != 0]))
+    ltdSIM3[[y]] <- sum(mcprediction)
+  }
+  WillemainSIM3[[i]] <- mean(ltdSIM3)
+  WillemainSDSIM3[[i]] <- sd(ltdSIM3)} else {statesNames=c(1)
+    mc<-new("markovchain", transitionMatrix=matrix((transprob),byrow=TRUE,
+                                                   nrow=1, dimnames=list(statesNames,statesNames)))
+    for (y in 1:10){
+      mcprediction <- as.numeric(markovchainSequence(n=leadtime, markovchain=mc,t0 = tail(seqSIM3[[i]], n=1),include.t0 = FALSE))
+      nonzeroamount <- length(mcprediction[mcprediction != 0])
+      nonzeroes <- trainSIM3[[i]]
+      mcprediction[mcprediction != 0] <- sample(nonzeroes[nonzeroes != 0], size=nonzeroamount)
+      mcprediction[mcprediction != 0] <- 1 + round(mcprediction[mcprediction != 0] + rnorm(1)*sqrt(mcprediction[mcprediction != 0]))
+      ltdSIM3[[y]] <- sum(mcprediction)
+  }
+  WillemainSIM3[[i]] <- mean(ltdSIM3)
+  WillemainSDSIM3[[i]] <- sd(ltdSIM3)
+}}
+
+# SIM4
+i=1
+y=1
+for(i in 1:ncol(seqSIM4)){
+  leadtime <- 1
+  statesNames=c(0,1)
+  transprob <- createSequenceMatrix(
+    seqSIM4[[i]],
+    toRowProbs = TRUE,
+    sanitize = FALSE
+  )
+  if(length(transprob)!=1){
+    mc<-new("markovchain", transitionMatrix=matrix((transprob),
+                                                   nrow=2, dimnames=list(statesNames,statesNames)))
+    for (y in 1:10){
+      mcprediction <- as.numeric(markovchainSequence(n=leadtime, markovchain=mc,t0 = tail(seqSIM4[[i]], n=1),include.t0 = FALSE))
+      nonzeroamount <- length(mcprediction[mcprediction != 0])
+      nonzeroes <- trainSIM4[[i]]
+      mcprediction[mcprediction != 0] <- sample(nonzeroes[nonzeroes != 0], size=nonzeroamount)
+      mcprediction[mcprediction != 0] <- 1 + round(mcprediction[mcprediction != 0] + rnorm(1)*sqrt(mcprediction[mcprediction != 0]))
+      ltdSIM4[[y]] <- sum(mcprediction)
+    }
+    WillemainSIM4[[i]] <- mean(ltdSIM4)
+    WillemainSDSIM4[[i]] <- sd(ltdSIM4)} else {statesNames=c(1)
+    mc<-new("markovchain", transitionMatrix=matrix((transprob),byrow=TRUE,
+                                                   nrow=1, dimnames=list(statesNames,statesNames)))
+    for (y in 1:10){
+      mcprediction <- as.numeric(markovchainSequence(n=leadtime, markovchain=mc,t0 = tail(seqSIM4[[i]], n=1),include.t0 = FALSE))
+      nonzeroamount <- length(mcprediction[mcprediction != 0])
+      nonzeroes <- trainSIM4[[i]]
+      mcprediction[mcprediction != 0] <- sample(nonzeroes[nonzeroes != 0], size=nonzeroamount)
+      mcprediction[mcprediction != 0] <- 1 + round(mcprediction[mcprediction != 0] + rnorm(1)*sqrt(mcprediction[mcprediction != 0]))
+      ltdSIM4[[y]] <- sum(mcprediction)
+    }
+    WillemainSIM4[[i]] <- mean(ltdSIM4)
+    WillemainSDSIM4[[i]] <- sd(ltdSIM4)
+    }}
+
+# MAN
+i=1
+y=1
+for(i in 1:ncol(seqMAN)){
+  leadtime <- 1
+  statesNames=c(0,1)
+  transprob <- createSequenceMatrix(
+    seqMAN[[i]],
+    toRowProbs = TRUE,
+    sanitize = FALSE
+  )
+  if(length(transprob)!=1){
+    mc<-new("markovchain", transitionMatrix=matrix((transprob),
+                                                   nrow=2, dimnames=list(statesNames,statesNames)))
+    for (y in 1:10){
+      mcprediction <- as.numeric(markovchainSequence(n=leadtime, markovchain=mc,t0 = tail(seqMAN[[i]], n=1),include.t0 = FALSE))
+      nonzeroamount <- length(mcprediction[mcprediction != 0])
+      nonzeroes <- trainMAN[[i]]
+      mcprediction[mcprediction != 0] <- sample(nonzeroes[nonzeroes != 0], size=nonzeroamount)
+      mcprediction[mcprediction != 0] <- 1 + round(mcprediction[mcprediction != 0] + rnorm(1)*sqrt(mcprediction[mcprediction != 0]))
+      ltdMAN[[y]] <- sum(mcprediction)
+    }
+    WillemainMAN[[i]] <- mean(ltdMAN)
+    WillemainSDMAN[[i]] <- sd(ltdMAN)} else {statesNames=c(1)
+    mc<-new("markovchain", transitionMatrix=matrix((transprob),byrow=TRUE,
+                                                   nrow=1, dimnames=list(statesNames,statesNames)))
+    for (y in 1:10){
+      mcprediction <- as.numeric(markovchainSequence(n=leadtime, markovchain=mc,t0 = tail(seqMAN[[i]], n=1),include.t0 = FALSE))
+      nonzeroamount <- length(mcprediction[mcprediction != 0])
+      nonzeroes <- trainMAN[[i]]
+      mcprediction[mcprediction != 0] <- sample(nonzeroes[nonzeroes != 0], size=nonzeroamount)
+      mcprediction[mcprediction != 0] <- 1 + round(mcprediction[mcprediction != 0] + rnorm(1)*sqrt(mcprediction[mcprediction != 0]))
+      ltdMAN[[y]] <- sum(mcprediction)
+    }
+    WillemainMAN[[i]] <- mean(ltdMAN)
+    WillemainSDMAN[[i]] <- sd(ltdMAN)
+    }}
+
+# BRAF
+i=1
+y=1
+for(i in 1:ncol(seqBRAF)){
+  leadtime <- 1
+  statesNames=c(0,1)
+  transprob <- createSequenceMatrix(
+    seqBRAF[[i]],
+    toRowProbs = TRUE,
+    sanitize = FALSE
+  )
+  if(length(transprob)!=1){
+    mc<-new("markovchain", transitionMatrix=matrix((transprob),
+                                                   nrow=2, dimnames=list(statesNames,statesNames)))
+    for (y in 1:10){
+      mcprediction <- as.numeric(markovchainSequence(n=leadtime, markovchain=mc,t0 = tail(seqBRAF[[i]], n=1),include.t0 = FALSE))
+      nonzeroamount <- length(mcprediction[mcprediction != 0])
+      nonzeroes <- trainBRAF[[i]]
+      mcprediction[mcprediction != 0] <- sample(nonzeroes[nonzeroes != 0], size=nonzeroamount)
+      mcprediction[mcprediction != 0] <- 1 + round(mcprediction[mcprediction != 0] + rnorm(1)*sqrt(mcprediction[mcprediction != 0]))
+      ltdBRAF[[y]] <- sum(mcprediction)
+    }
+    WillemainBRAF[[i]] <- mean(ltdBRAF)
+    WillemainSDBRAF[[i]] <- sd(ltdBRAF)} else {statesNames=c(1)
+    mc<-new("markovchain", transitionMatrix=matrix((transprob),byrow=TRUE,
+                                                   nrow=1, dimnames=list(statesNames,statesNames)))
+    for (y in 1:10){
+      mcprediction <- as.numeric(markovchainSequence(n=leadtime, markovchain=mc,t0 = tail(seqBRAF[[i]], n=1),include.t0 = FALSE))
+      nonzeroamount <- length(mcprediction[mcprediction != 0])
+      nonzeroes <- trainBRAF[[i]]
+      mcprediction[mcprediction != 0] <- sample(nonzeroes[nonzeroes != 0], size=nonzeroamount)
+      mcprediction[mcprediction != 0] <- 1 + round(mcprediction[mcprediction != 0] + rnorm(1)*sqrt(mcprediction[mcprediction != 0]))
+      ltdBRAF[[y]] <- sum(mcprediction)
+    }
+    WillemainBRAF[[i]] <- mean(ltdBRAF)
+    WillemainSDBRAF[[i]] <- sd(ltdBRAF)
+    }}
+
+# AUTO
+# Items with only nonzeroes and one zero at the end, breaking the transition probability matrix. 
+# These items were replaced with another item from the data set. 
+seqAUTO[[17]] <- seqAUTO[[2]]
+seqAUTO[[110]] <- seqAUTO[[2]]
+seqAUTO[[256]] <- seqAUTO[[2]]
+seqAUTO[[298]] <- seqAUTO[[2]]
+seqAUTO[[363]] <- seqAUTO[[2]]
+seqAUTO[[393]] <- seqAUTO[[2]]
+seqAUTO[[471]] <- seqAUTO[[2]]
+seqAUTO[[602]] <- seqAUTO[[2]]
+seqAUTO[[659]] <- seqAUTO[[2]]
+seqAUTO[[783]] <- seqAUTO[[2]]
+seqAUTO[[857]] <- seqAUTO[[2]]
+seqAUTO[[860]] <- seqAUTO[[2]]
+seqAUTO[[908]] <- seqAUTO[[2]]
+seqAUTO[[930]] <- seqAUTO[[2]]
+seqAUTO[[1007]] <- seqAUTO[[2]]
+seqAUTO[[1158]] <- seqAUTO[[2]]
+seqAUTO[[1163]] <- seqAUTO[[2]]
+seqAUTO[[1221]] <- seqAUTO[[2]]
+seqAUTO[[1321]] <- seqAUTO[[2]]
+seqAUTO[[1410]] <- seqAUTO[[2]]
+seqAUTO[[1693]] <- seqAUTO[[2]]
+seqAUTO[[1736]] <- seqAUTO[[2]]
+seqAUTO[[1826]] <- seqAUTO[[2]]
+seqAUTO[[1935]] <- seqAUTO[[2]]
+seqAUTO[[1981]] <- seqAUTO[[2]]
+seqAUTO[[2028]] <- seqAUTO[[2]]
+seqAUTO[[2059]] <- seqAUTO[[2]]
+seqAUTO[[2067]] <- seqAUTO[[2]]
+seqAUTO[[2152]] <- seqAUTO[[2]]
+seqAUTO[[2402]] <- seqAUTO[[2]]
+seqAUTO[[2551]] <- seqAUTO[[2]]
+seqAUTO[[2563]] <- seqAUTO[[2]]
+seqAUTO[[2671]] <- seqAUTO[[2]]
+seqAUTO[[2691]] <- seqAUTO[[2]]
+seqAUTO[[2693]] <- seqAUTO[[2]]
+seqAUTO[[2766]] <- seqAUTO[[2]]
+seqAUTO[[2921]] <- seqAUTO[[2]]
+
+i=1
+y=1
+for(i in 1:ncol(seqAUTO)){
+  leadtime <- 1
+  statesNames=c(0,1)
+  transprob <- createSequenceMatrix(
+    seqAUTO[[i]],
+    toRowProbs = TRUE,
+    sanitize = FALSE
+  )
+  if(length(transprob)!=1){
+    mc<-new("markovchain", transitionMatrix=matrix((transprob),
+                                                   nrow=2, dimnames=list(statesNames,statesNames)))
+    for (y in 1:10){
+      mcprediction <- as.numeric(markovchainSequence(n=leadtime, markovchain=mc,t0 = tail(seqAUTO[[i]], n=1),include.t0 = FALSE))
+      nonzeroamount <- length(mcprediction[mcprediction != 0])
+      nonzeroes <- trainAUTO[[i]]
+      mcprediction[mcprediction != 0] <- sample(nonzeroes[nonzeroes != 0], size=nonzeroamount)
+      mcprediction[mcprediction != 0] <- 1 + round(mcprediction[mcprediction != 0] + rnorm(1)*sqrt(mcprediction[mcprediction != 0]))
+      ltdAUTO[[y]] <- sum(mcprediction)
+    }
+    WillemainAUTO[[i]] <- mean(ltdAUTO)
+    WillemainSDAUTO[[i]] <- sd(ltdAUTO)} else {statesNames=c(1)
+    mc<-new("markovchain", transitionMatrix=matrix((transprob),byrow=TRUE,
+                                                   nrow=1, dimnames=list(statesNames,statesNames)))
+    for (y in 1:10){
+      mcprediction <- as.numeric(markovchainSequence(n=leadtime, markovchain=mc,t0 = tail(seqAUTO[[i]], n=1),include.t0 = FALSE))
+      nonzeroamount <- length(mcprediction[mcprediction != 0])
+      nonzeroes <- trainAUTO[[i]]
+      mcprediction[mcprediction != 0] <- sample(nonzeroes[nonzeroes != 0], size=nonzeroamount)
+      mcprediction[mcprediction != 0] <- 1 + round(mcprediction[mcprediction != 0] + rnorm(1)*sqrt(mcprediction[mcprediction != 0]))
+      ltdAUTO[[y]] <- sum(mcprediction)
+    }
+    WillemainAUTO[[i]] <- mean(ltdAUTO)
+    WillemainSDAUTO[[i]] <- sd(ltdAUTO)
+    }}
+
+# OIL
+i=1
+y=1
+for(i in 1:ncol(seqOIL)){
+  leadtime <- 1
+  statesNames=c(0,1)
+  transprob <- createSequenceMatrix(
+    seqOIL[[i]],
+    toRowProbs = TRUE,
+    sanitize = FALSE
+  )
+  if(length(transprob)!=1){
+    mc<-new("markovchain", transitionMatrix=matrix((transprob),
+                                                   nrow=2, dimnames=list(statesNames,statesNames)))
+    for (y in 1:10){
+      mcprediction <- as.numeric(markovchainSequence(n=leadtime, markovchain=mc,t0 = tail(seqOIL[[i]], n=1),include.t0 = FALSE))
+      nonzeroamount <- length(mcprediction[mcprediction != 0])
+      nonzeroes <- na.omit(trainOIL[[i]])
+      mcprediction[mcprediction != 0] <- sample(nonzeroes[nonzeroes != 0], size=nonzeroamount)
+      mcprediction[mcprediction != 0] <- 1 + round(mcprediction[mcprediction != 0] + rnorm(1)*sqrt(mcprediction[mcprediction != 0]))
+      ltdOIL[[y]] <- sum(mcprediction)
+    }
+    WillemainOIL[[i]] <- mean(ltdOIL)
+    WillemainSDOIL[[i]] <- sd(ltdOIL)} else {statesNames=c(1)
+    mc<-new("markovchain", transitionMatrix=matrix((transprob),byrow=TRUE,
+                                                   nrow=1, dimnames=list(statesNames,statesNames)))
+    for (y in 1:10){
+      mcprediction <- as.numeric(markovchainSequence(n=leadtime, markovchain=mc,t0 = tail(seqOIL[[i]], n=1),include.t0 = FALSE))
+      nonzeroamount <- length(mcprediction[mcprediction != 0])
+      nonzeroes <- trainOIL[[i]]
+      mcprediction[mcprediction != 0] <- sample(nonzeroes[nonzeroes != 0], size=nonzeroamount)
+      mcprediction[mcprediction != 0] <- 1 + round(mcprediction[mcprediction != 0] + rnorm(1)*sqrt(mcprediction[mcprediction != 0]))
+      ltdOIL[[y]] <- sum(mcprediction)
+    }
+    WillemainOIL[[i]] <- mean(ltdOIL)
+    WillemainSDOIL[[i]] <- sd(ltdOIL)
+    }}
+
+print("time Willemain total")
+proc.time() - ptm
+
+
+############################################## After this the code is still experimental and in progress. ###########################################################
+
+
+
+# Machine learning method (Single hidden layer MLP) on all data sets.
+# Normalizing the data to 0-1 for the MLP, ignoring NA's for the OIL dataset using a custom function.
+normalize <- function(x) {
+  return ((x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE)))}
+
+nntrainSIM1 <- normalizeData(trainSIM1, type = "0_1")
+nntrainSIM2 <- normalizeData(trainSIM2, type = "0_1")
+nntrainSIM3 <- normalizeData(trainSIM3, type = "0_1")
+nntrainSIM4 <- normalizeData(trainSIM4, type = "0_1")
+nntrainMAN  <- normalizeData(trainMAN, type = "0_1")
+nntrainBRAF <- normalizeData(trainBRAF, type = "0_1")
+nntrainAUTO <- normalizeData(trainAUTO, type = "0_1")
+nntrainOIL <- trainOIL
+n=1
+for (n in 1:ncol(trainOIL)){
+  nntrainOIL[[n]]  <- normalize(trainOIL[[n]])
+}
+
+
+# Creating lagged variables that are used as the rolling input. 
+lagSIM1 <- L(SIM1,1:5)
+lagSIM1 <- lagSIM1[is.na(lagSIM1)]
+
+
+lags <- runner(
+  x = nntrainSIM1[,1], 
+  k = 5, # 5-days window
+)
+
+input <- c(1.00000000, 0.25000000, 0.28571429, 0.35714286, 0.32142857)
+output <- c(0.07142857)
+
+output <- timeseries_generator(
+  input,
+  input,
+  length=1,
+  batch_size = 10
+)
+
+install.packages("keras"
+)
+library(keras)
+  
+splitSIM1 <- splitForTrainingAndTest(input, output, ratio=0.15)
+
+splitSIM1 <- normTrainingAndTestSet(splitSIM1)
+model <- mlp(input, output, size=3, learnFuncParams=c(0.1),
+             maxit=1000)
+
+
+# Applying the MLP to the rolling input and output window. 
+
+
+nntrainSIM1[[1]]
+
+mlp(
+  lagSIM1,
+  y,
+  size = size,
+  maxit = 100,
+  initFunc = "Randomize_Weights",
+  initFuncParams = c(-0.3, 0.3),
+  learnFunc = "Std_Backpropagation",
+  learnFuncParams = c(0.2, 0),
+  updateFunc = "Topological_Order",
+  updateFuncParams = c(0),
+  hiddenActFunc = "Act_Logistic",
+  shufflePatterns = TRUE,
+  linOut = FALSE,
+  outputActFunc = if (linOut) "Act_Identity" else "Act_Logistic",
+  inputsTest = NULL,
+  targetsTest = NULL,
+  pruneFunc = NULL,
+  pruneFuncParams = NULL
+)
+
+
+# Denormalizing the data for evaluation of forecasts.
+normParamsnntrainSIM1 <- getNormParameters(nntrainSIM1)
+nntrainSIM1 <- denormalizeData(nntrainSIM1, normParamsnntrainSIM1)
+
+lagsim1 <- L(SIM1,1:5,fill=0)
+
+splitSIM1 <- splitForTrainingAndTest(lagsim1, SIM1, ratio=0.30)
+splitSIM1 <- normTrainingAndTestSet(splitSIM1)
+
+model <- mlp(splitSIM1$inputsTrain[,1], splitSIM1$targetsTrain[,1], size=3, learnFuncParams=c(0.1),
+             maxit=50, inputsTest=splitSIM1$inputsTest[,1], targetsTest=splitSIM1$targetsTest[,1])
+
+weightMatrix(model)
+extractNetInfo(model)
+
+nnpredictionsSIM1 <- predict(model,splitSIM1$inputsTest[,1])
+
+summary(nnpredictionsSIM1)
+
+View(splitSIM1$inputsTest[,1:5])
+View(splitSIM1$targetsTest[,1])
+View(splitSIM1$targetsTrain)
+
+model <- mlp(splitSIM1$inputsTrain[,1], splitSIM1$targetsTrain[,1], size=5, learnFuncParams=c(0.1),
+             maxit=1000)
+nnpredictionsSIM1 <- predict(model,splitSIM1$inputsTest[,1])
+
+
+
+mlp(
+  splitSIM1$inputsTrain[,1], 
+  splitSIM1$targetsTrain[,1],
+  size = size,
+  maxit = 100,
+  initFunc = "Randomize_Weights",
+  initFuncParams = c(-0.3, 0.3),
+  learnFunc = "Std_Backpropagation",
+  learnFuncParams = c(0.2, 0),
+  updateFunc = "Topological_Order",
+  updateFuncParams = c(0),
+  hiddenActFunc = "Act_Logistic",
+  shufflePatterns = TRUE,
+  linOut = FALSE,
+  outputActFunc = if (linOut) "Act_Identity" else "Act_Logistic",
+  inputsTest = NULL,
+  targetsTest = NULL,
+  pruneFunc = NULL,
+  pruneFuncParams = NULL
+)
+
+inputwindowx = 3
+outputwindowx = 1
+size = inputwindowx*1
+
+
 
 
 
