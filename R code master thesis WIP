@@ -1,9 +1,11 @@
 
+
+
 #R script for Master Thesis Daniel de Haan
 
 ###   CODE   ###
 
-# Libraries used.
+####          Libraries used. ####
 library(xlsx)
 library(tsintermittent)
 library(lightgbm)
@@ -15,9 +17,18 @@ library(matlab)
 library(markovchain)
 library(Rcpp)
 library(TraMineR)
+library(dplyr)
+library(RSNNS)
+library(tidyr)
+library(collapse)
+library(runner)
+library(ggplot2)
+library(data.table)
+library(greybox)
+library(beepr)
 
 # Set seed for reproducibility.
-set.seed(8377)                        
+set.seed(8377)
 
 # Simulating the four simulated data sets.
 # SIM1 <- simID(n=6500, obs=60, idi=1, cv2=0.75, level=10)
@@ -31,7 +42,7 @@ set.seed(8377)
 # write.xlsx(SIM3, "c:/Daan/SIM3.xlsx")
 # write.xlsx(SIM4, "c:/Daan/SIM42.xlsx")
 
-# Importing the simulated and industrial data sets.
+####          Importing the simulated and industrial data sets. ####
 SIM1 <- as.data.frame(read_excel("C:/Daan/SIM1.xlsx"))
 SIM2 <- as.data.frame(read_excel("C:/Daan/SIM2.xlsx"))
 SIM3 <- as.data.frame(read_excel("C:/Daan/SIM3.xlsx"))
@@ -42,10 +53,21 @@ BRAF <- as.data.frame(t(read_excel("C:/Daan/BRAF.xls", sheet = "GOEIE")))[-c(1),
 AUTO <- as.data.frame(t(read_excel("C:/Daan/AUTO.xls", sheet = "GOEIE")))[-c(1), ]
 OIL <- as.data.frame(t(read_excel("C:/Daan/OIL.xls", sheet = "GOEIE")))[-c(1), ]
 
-# Creating the test and train data sets.
-sampleSIM1 = round(nrow(SIM1)*.70) # This creates the split point at 0.70.
-# As the sample size is the same for all simulated data sets, 
-# the sample from SIM1 can just be used for all SIM data sets.
+# Extracting price and leadtime vectors.
+pricesSIM4 <- SIM4[61,]
+leadtimesSIM4 <- 1
+SIM4 <- SIM4[-61,]
+
+# Coercing all negative values to zeroes.
+
+MAN <- pmax(MAN,0)
+BRAF <- pmax(BRAF,0)
+AUTO <- pmax(AUTO,0)
+OIL <- pmax(OIL,0)
+
+####          Creating the test and train data sets. ####
+# As the sample size is the same for all simulated data sets, the sample from SIM1 can just be used for all SIM data sets.
+sampleSIM1 = round(nrow(SIM1)*.70) 
 trainSIM1 <- SIM1[1:(sampleSIM1), ]
 testSIM1 <- SIM1[-(1:(sampleSIM1)), ]
 
@@ -75,71 +97,458 @@ sampleOIL = round(nrow(OIL)*.70)
 trainOIL <- OIL[1:(sampleOIL), ]
 testOIL <- OIL[-(1:(sampleOIL)), ]
 
+# Dropping the items which do not have more than one demand occurence for the industrial data sets.
+
+
+cond1 <- colSums(trainMAN != 0, na.rm=T)<2
+mask1 <- !(cond1)
+trainMAN <- subset(trainMAN, select=mask1)
+testMAN <- subset(testMAN,select=names(trainMAN))
+
+
+cond2 <- colSums(trainBRAF != 0, na.rm=T)<2
+mask2 <- !(cond2)
+trainBRAF <- subset(trainBRAF, select=mask2)
+testBRAF <- subset(testBRAF,select=names(trainBRAF))
+
+cond3 <- colSums(trainAUTO != 0, na.rm=T)<2
+mask3 <- !(cond3)
+trainAUTO <- subset(trainAUTO, select=mask3)
+testAUTO <- subset(testAUTO,select=names(trainAUTO))
+
+cond4 <- colSums(trainOIL != 0, na.rm=T)<2
+mask4 <- !(cond4)
+trainOIL <- subset(trainOIL, select=mask4)
+testOIL <- subset(testOIL,select=names(trainOIL))
+
 # The forecast horizon is set to the amount of periods in the test sample.
 
-# Croston on all data sets. 
+####          Croston on all data sets. ####
 ptm <- proc.time()
-CrostonSIM1 <- data.frc(trainSIM1, method="crost",h=18, w=0.1,nop=2, type="croston",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
-CrostonSIM2 <- data.frc(trainSIM2, method="crost", h=18, w=NULL,nop=2, type="croston",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
-CrostonSIM3 <- data.frc(trainSIM3, method="crost", h=18, w=NULL,nop=2, type="croston",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
-CrostonSIM4 <- data.frc(trainSIM4, method="crost", h=18, w=NULL,nop=2, type="croston",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
 
-CrostonMAN <- data.frc(trainMAN, method="crost", h=45, w=NULL,nop=2, type="croston",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
-CrostonBRAF <- data.frc(trainBRAF, method="crost", h=25, w=NULL,nop=2, type="croston",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
-CrostonAUTO <- data.frc(trainAUTO, method="crost", h=7, w=NULL,nop=2, type="croston",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
-CrostonOIL <- data.frc(trainOIL, method="crost", h=17, w=NULL,nop=2, type="croston",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+####          Croston on SIM1 data ####
+CrostonSIM1 <- data.frc(trainSIM1, method="crost",h=18, w=NULL,nop=2, type="croston",cost="mar",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+
+# Forecasting accuracy measures.
+CrostonMSESIM1 <- NULL
+CrostonMASESIM1 <- NULL
+CrostonRMSSESIM1 <- NULL
+for (i in 1:ncol(testSIM1)){
+  CrostonMSESIM1 <- cbind(CrostonMSESIM1,  MSE(t(testSIM1[i]),t(CrostonSIM1[i])))
+  CrostonMASESIM1 <- cbind(CrostonMASESIM1,  MASE(t(testSIM1[i]),t(CrostonSIM1[i]), mean(abs(t(trainSIM1[i])))))
+  CrostonRMSSESIM1 <- cbind(CrostonRMSSESIM1,  RMSSE(t(testSIM1[i]),t(CrostonSIM1[i]), mean(abs(t(trainSIM1[i])))))
+}
+CrostonMSESIM1 <- mean(CrostonMSESIM1)
+CrostonMASESIM1 <- mean(CrostonMASESIM1)
+CrostonRMSSESIM1 <- mean(CrostonRMSSESIM1)
+print(c("SIM1", CrostonMSESIM1, CrostonMASESIM1, CrostonRMSSESIM1))
+
+
+
+####          Croston on SIM2 data ####
+CrostonSIM2 <- data.frc(trainSIM2, method="crost", h=18, w=NULL,nop=2, type="croston",cost="mar",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+
+# Forecasting accuracy measures.
+CrostonMSESIM2 <- NULL
+CrostonMASESIM2 <- NULL
+CrostonRMSSESIM2 <- NULL
+for (i in 1:ncol(testSIM2)){
+  CrostonMSESIM2 <- cbind(CrostonMSESIM2,  MSE(t(testSIM2[i]),t(CrostonSIM2[i])))
+  CrostonMASESIM2 <- cbind(CrostonMASESIM2,  MASE(t(testSIM2[i]),t(CrostonSIM2[i]), mean(abs(t(trainSIM2[i])))))
+  CrostonRMSSESIM2 <- cbind(CrostonRMSSESIM2,  RMSSE(t(testSIM2[i]),t(CrostonSIM2[i]), mean(abs(t(trainSIM2[i])))))
+}
+CrostonMSESIM2 <- mean(CrostonMSESIM2)
+CrostonMASESIM2 <- mean(CrostonMASESIM2)
+CrostonRMSSESIM2 <- mean(CrostonRMSSESIM2)
+print(c("SIM2", CrostonMSESIM2, CrostonMASESIM2, CrostonRMSSESIM2))
+
+
+####          Croston on SIM3 data ####
+CrostonSIM3 <- data.frc(trainSIM3, method="crost", h=18, w=NULL,nop=2, type="croston",cost="mar",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+
+# Forecasting accuracy measures.
+CrostonMSESIM3 <- NULL
+CrostonMASESIM3 <- NULL
+CrostonRMSSESIM3 <- NULL
+for (i in 1:ncol(testSIM3)){
+  CrostonMSESIM3 <- cbind(CrostonMSESIM3,  MSE(t(testSIM3[i]),t(CrostonSIM3[i])))
+  CrostonMASESIM3 <- cbind(CrostonMASESIM3,  MASE(t(testSIM3[i]),t(CrostonSIM3[i]), mean(abs(t(trainSIM3[i])))))
+  CrostonRMSSESIM3 <- cbind(CrostonRMSSESIM3,  RMSSE(t(testSIM3[i]),t(CrostonSIM3[i]), mean(abs(t(trainSIM3[i])))))
+}
+CrostonMSESIM3 <- mean(CrostonMSESIM3)
+CrostonMASESIM3 <- mean(CrostonMASESIM3)
+CrostonRMSSESIM3 <- mean(CrostonRMSSESIM3)
+print(c("SIM3", CrostonMSESIM3, CrostonMASESIM3, CrostonRMSSESIM3))
+
+
+####          Croston on SIM4 data ####
+CrostonSIM4 <- data.frc(trainSIM4, method="crost", h=18, w=NULL,nop=2, type="croston",cost="mar",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+
+# Forecasting accuracy measures.
+CrostonMSESIM4 <- NULL
+CrostonMASESIM4 <- NULL
+CrostonRMSSESIM4 <- NULL
+for (i in 1:ncol(testSIM4)){
+CrostonMSESIM4 <- cbind(CrostonMSESIM4,  MSE(t(testSIM4[i]),t(CrostonSIM4[i])))
+CrostonMASESIM4 <- cbind(CrostonMASESIM4,  MASE(t(testSIM4[i]),t(CrostonSIM4[i]), mean(abs(t(trainSIM4[i])))))
+CrostonRMSSESIM4 <- cbind(CrostonRMSSESIM4,  RMSSE(t(testSIM4[i]),t(CrostonSIM4[i]), mean(abs(t(trainSIM4[i])))))
+}
+CrostonMSESIM4 <- mean(CrostonMSESIM4)
+CrostonMASESIM4 <- mean(CrostonMASESIM4)
+CrostonRMSSESIM4 <- mean(CrostonRMSSESIM4)
+print(c("SIM4", CrostonMSESIM4, CrostonMASESIM4, CrostonRMSSESIM4))
+
+# Inventory performance measures.
+targetfillrates <- c(qnorm(0.75),qnorm(0.8),qnorm(0.85),qnorm(0.9),qnorm(0.95),qnorm(0.99),qnorm(0.999999))
+leadtimes <- as.data.frame(leadtimesSIM4)
+prices <- as.data.frame(pricesSIM4)
+
+i=3
+
+holdingcostsSIM4 <- matrix(c(0.75,0.8,0.85,0.9,0.95,0.99,0.9999999),ncol = 7)
+for (i in 1:ncol(CrostonSIM4)){
+leadtimedemand <- mean(t(CrostonSIM4[i])) * 1 # * leadtimes[,i]
+stdev <- std(t(trainSIM4[i]))
+stocklevelR <- (targetfillrates * stdev + leadtimedemand)
+holdingcostsSIM4 <- rbind(holdingcostsSIM4,(0.25 * (stocklevelR * prices[,i])))
+}
+CrostonholdingSIM4 <- colSums(holdingcostsSIM4[-1,])
+ProcentualCrostonholdingSIM4 <- CrostonholdingSIM4/CrostonholdingSIM4[1]
+
+CrostonholdingSIM4 <- holdingcostsSIM4[-1,]
+
+# Achieved fill rate.
+fillrateCrostonSIM4 <- matrix(ncol=7)
+averagefillrateitem <- matrix(ncol=7)
+fillratefiller <- matrix(rep(NA,18),ncol=nrow(testSIM4))
+for(i in 1:ncol(testSIM4)){
+  for (j in 1:length(targetfillrates)){
+  fillratefiller <- stocklevelR[j] / t(testSIM4[i])[(t(testSIM4[i]) > 0)]
+  fillratefiller[fillratefiller >= 1] <- 1
+  averagefillrateitem[j] <- mean(fillratefiller)
+  }
+  fillrateCrostonSIM4 <- rbind(fillrateCrostonSIM4, averagefillrateitem)
+  }
+achievedfillrateCrostonSIM4 <- colMeans(fillrateCrostonSIM4[-1,])
+
+achievedfillrateCrostonSIM4 <- fillrateCrostonSIM4[-1,]
+
+ServicelevelCrostonSIM4 <- data.frame(achievedfillrateCrostonSIM4 = achievedfillrateCrostonSIM4, CrostonholdingSIM4 = ProcentualCrostonholdingSIM4, targetfillrates = c(0.75,0.8,0.85,0.9,0.95,0.99,0.9999999))
+
+####          Croston on MAN data ####
+CrostonMAN <- data.frc(trainMAN, method="crost", h=45, w=NULL,nop=2, type="croston",cost="mar",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+
+# Forecasting accuracy measures.
+CrostonMSEMAN <- NULL
+CrostonMASEMAN <- NULL
+CrostonRMSSEMAN <- NULL
+for (i in 1:ncol(testMAN)){
+  CrostonMSEMAN <- cbind(CrostonMSEMAN,  MSE(t(testMAN[i]),t(CrostonMAN[i])))
+  CrostonMASEMAN <- cbind(CrostonMASEMAN,  MASE(t(testMAN[i]),t(CrostonMAN[i]), mean(abs(t(trainMAN[i])))))
+  CrostonRMSSEMAN <- cbind(CrostonRMSSEMAN,  RMSSE(t(testMAN[i]),t(CrostonMAN[i]), mean(abs(t(trainMAN[i])))))
+}
+CrostonMSEMAN <- mean(CrostonMSEMAN)
+CrostonMASEMAN <- mean(CrostonMASEMAN)
+CrostonRMSSEMAN <- mean(CrostonRMSSEMAN)
+print(c("MAN", CrostonMSEMAN, CrostonMASEMAN, CrostonRMSSEMAN))
+
+####          Croston on BRAF data ####
+CrostonBRAF <- data.frc(trainBRAF, method="crost", h=25, w=NULL,nop=2, type="croston",cost="mar",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+
+# Forecasting accuracy measures.
+CrostonMSEBRAF <- NULL
+CrostonMASEBRAF <- NULL
+CrostonRMSSEBRAF <- NULL
+for (i in 1:ncol(testBRAF)){
+  CrostonMSEBRAF <- cbind(CrostonMSEBRAF,  MSE(t(testBRAF[i]),t(CrostonBRAF[i])))
+  CrostonMASEBRAF <- cbind(CrostonMASEBRAF,  MASE(t(testBRAF[i]),t(CrostonBRAF[i]), mean(abs(t(trainBRAF[i])))))
+  CrostonRMSSEBRAF <- cbind(CrostonRMSSEBRAF,  RMSSE(t(testBRAF[i]),t(CrostonBRAF[i]), mean(abs(t(trainBRAF[i])))))
+}
+CrostonMSEBRAF <- mean(CrostonMSEBRAF)
+CrostonMASEBRAF <- mean(CrostonMASEBRAF)
+CrostonRMSSEBRAF <- mean(CrostonRMSSEBRAF)
+print(c("BRAF", CrostonMSEBRAF, CrostonMASEBRAF, CrostonRMSSEBRAF))
+
+####          Croston on AUTO data ####
+CrostonAUTO <- data.frc(trainAUTO, method="crost", h=7, w=NULL,nop=2, type="croston",cost="mar",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+
+# Forecasting accuracy measures.
+CrostonMSEAUTO <- NULL
+CrostonMASEAUTO <- NULL
+CrostonRMSSEAUTO <- NULL
+for (i in 1:ncol(testAUTO)){
+  CrostonMSEAUTO <- cbind(CrostonMSEAUTO,  MSE(t(testAUTO[i]),t(CrostonAUTO[i])))
+  CrostonMASEAUTO <- cbind(CrostonMASEAUTO,  MASE(t(testAUTO[i]),t(CrostonAUTO[i]), mean(abs(t(trainAUTO[i])))))
+  CrostonRMSSEAUTO <- cbind(CrostonRMSSEAUTO,  RMSSE(t(testAUTO[i]),t(CrostonAUTO[i]), mean(abs(t(trainAUTO[i])))))
+}
+CrostonMSEAUTO <- mean(CrostonMSEAUTO)
+CrostonMASEAUTO <- mean(CrostonMASEAUTO)
+CrostonRMSSEAUTO <- mean(CrostonRMSSEAUTO)
+print(c("AUTO", CrostonMSEAUTO, CrostonMASEAUTO, CrostonRMSSEAUTO))
+
+####          Croston on OIL data ####
+CrostonOIL <- data.frc(trainOIL, method="crost", h=17, w=NULL,nop=2, type="croston",cost="mar",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+
+# Forecasting accuracy measures.
+CrostonMSEOIL <- NULL
+CrostonMASEOIL <- NULL
+CrostonRMSSEOIL <- NULL
+for (i in 1:ncol(testOIL)){
+  CrostonMSEOIL <- cbind(CrostonMSEOIL,  MSE(t(testOIL[i]),t(CrostonOIL[i])))
+  CrostonMASEOIL <- cbind(CrostonMASEOIL,  MASE(t(testOIL[i]),t(CrostonOIL[i]), mean(abs(t(trainOIL[i])))))
+  CrostonRMSSEOIL <- cbind(CrostonRMSSEOIL,  RMSSE(t(testOIL[i]),t(CrostonOIL[i]), mean(abs(t(trainOIL[i])))))
+}
+CrostonMSEOIL <- mean(CrostonMSEOIL)
+CrostonMASEOIL <- mean(CrostonMASEOIL)
+CrostonRMSSEOIL <- mean(CrostonRMSSEOIL)
+print(c("AUTO", CrostonMSEOIL, CrostonMASEOIL, CrostonRMSSEOIL))
 
 print("time Croston total")
 proc.time() - ptm
 
 
-# Simple Exponential Smoothing on all data sets.
-ptm <- proc.time()
-sesSIM1 <- data.frc(trainSIM1, method="sexsm",h=18, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
-sesSIM2 <- data.frc(trainSIM2, method="sexsm", h=18, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
-sesSIM3 <- data.frc(trainSIM3, method="sexsm", h=18, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
-sesSIM4 <- data.frc(trainSIM4, method="sexsm", h=18, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+####          Croston tradeoff curves ####
 
-sesMAN <- data.frc(trainMAN, method="sexsm", h=45, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
-sesBRAF <- data.frc(trainBRAF, method="sexsm", h=25, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
-sesAUTO <- data.frc(trainAUTO, method="sexsm", h=7, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
-sesOIL <- data.frc(trainOIL, method="sexsm", h=17, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+# Creating the tradeoff curves.
+ggplot() + 
+  geom_line(data=ServicelevelCrostonSIM4, aes(x=achievedfillrateCrostonSIM4, y=CrostonholdingSIM4), color='green') + 
+  geom_point(data=ServicelevelCrostonSIM4, aes(x=achievedfillrateCrostonSIM4, y=CrostonholdingSIM4), size = 1)+ 
+  geom_line(data=ServicelevelSESSIM4, aes(x=achievedfillrateSESSIM4, y=SESholdingSIM4), color='steelblue')+ 
+  geom_point(data=ServicelevelSESSIM4, aes(x=achievedfillrateSESSIM4, y=SESholdingSIM4), size = 1)+ 
+  ggtitle("Achieved fill rate vs. Inventory holding costs" ) 
+
+ggplot() + 
+  geom_line(data=ServicelevelCrostonSIM4, aes(x=targetfillrates, y=achievedfillrateCrostonSIM4), color='green') + 
+  geom_point(data=ServicelevelCrostonSIM4, aes(x=targetfillrates, y=achievedfillrateCrostonSIM4), size = 1)+ 
+  geom_line(data=ServicelevelSESSIM4, aes(x=targetfillrates, y=achievedfillrateSESSIM4), color='steelblue')+ 
+  geom_point(data=ServicelevelSESSIM4, aes(x=targetfillrates, y=achievedfillrateSESSIM4), size = 1)+ 
+  ggtitle("Target fill rate vs. Achieved fill rate")
+
+plot1
+plot2
+
+####          Simple Exponential Smoothing on all data sets. ####
+ptm <- proc.time()
+
+####          SES on SIM1 data ####
+sesSIM1 <- data.frc(trainSIM1, method="sexsm",h=18, w=NULL,cost="mar",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+
+####          SES on SIM2 data ####
+sesSIM2 <- data.frc(trainSIM2, method="sexsm", h=18, w=NULL,cost="mar",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+
+####          SES on SIM3 data ####
+sesSIM3 <- data.frc(trainSIM3, method="sexsm", h=18, w=NULL,cost="mar",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+
+####          SES on SIM4 data ####
+sesSIM4 <- data.frc(trainSIM4, method="sexsm", h=18, w=NULL,cost="mar",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+MSE(t(testSIM4[3]),t(sesSIM4))
+MASE(t(testSIM4[3]),t(sesSIM4), mean(abs(t(trainSIM4[3]))))
+RMSSE(t(testSIM4[3]),t(sesSIM4), mean(abs(t(trainSIM4[3]))))
+
+# Inventory performance measures.
+targetfillrates <- c(qnorm(0.75),qnorm(0.8),qnorm(0.85),qnorm(0.9),qnorm(0.95),qnorm(0.99),qnorm(0.999999))
+leadtimes <- as.data.frame(leadtimesSIM4)
+prices <- as.data.frame(pricesSIM4)
+
+i=3
+
+holdingcosts <- matrix(c(0.75,0.8,0.85,0.9,0.95,0.99,0.9999999),ncol = 7)
+for (i in 1:ncol(sesSIM4)){
+  leadtimedemand <- mean(t(sesSIM4[i])) * 1 # * leadtimes[,i]
+  stdev <- std(t(trainSIM4[i]))
+  stocklevelR <- (targetfillrates * stdev + leadtimedemand)
+  holdingcosts <- rbind(holdingcosts,(0.25 * (stocklevelR * prices[,i])))
+}
+SESholdingSIM4 <- colSums(holdingcosts[-1,])
+ProcentualSESholdingSIM4 <- SESholdingSIM4/SESholdingSIM4[1]
+
+SESholdingSIM4 <- holdingcosts[-1,]
+
+# Achieved fill rate.
+fillrateSESSIM4 <- matrix(ncol=7)
+averagefillrateitem <- matrix(ncol=7)
+fillratefiller <- matrix(rep(NA,18),ncol=nrow(testSIM4))
+for(i in 1:ncol(testSIM4)){
+  for (j in 1:length(targetfillrates)){
+    fillratefiller <- stocklevelR[j] / t(testSIM4[i])[(t(testSIM4[i]) > 0)]
+    fillratefiller[fillratefiller >= 1] <- 1
+    averagefillrateitem[j] <- mean(fillratefiller)
+  }
+  fillrateSESSIM4 <- rbind(fillrateSESSIM4, averagefillrateitem)
+}
+achievedfillrateSESSIM4 <- colMeans(fillrateSESSIM4[-1,])
+
+achievedfillrateSESSIM4 <- fillrateSESSIM4[-1,]
+
+ServicelevelSESSIM4 <- data.frame(achievedfillrateSESSIM4 = achievedfillrateSESSIM4, SESholdingSIM4 = ProcentualSESholdingSIM4, targetfillrates = c(0.75,0.8,0.85,0.9,0.95,0.99,0.9999999))
+
+
+
+
+####          SES on MAN data ####
+sesMAN <- data.frc(trainMAN, method="sexsm", h=45, w=NULL,cost="mar",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+
+####          SES on BRAF data ####
+sesBRAF <- data.frc(trainBRAF, method="sexsm", h=25, w=NULL,cost="mar",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+
+####          SES on AUTO data ####
+sesAUTO <- data.frc(trainAUTO, method="sexsm", h=7, w=NULL,cost="mar",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+
+####          SES on OIL data ####
+sesOIL <- data.frc(trainOIL, method="sexsm", h=17, w=NULL,cost="mar",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
 
 print("time SES total")
 proc.time() - ptm
 
 
-# SBA on all data sets. 
+####          SBA on all data sets. ####
 ptm <- proc.time()
-sbaSIM1 <- data.frc(trainSIM1, method="crost", h=18, w=NULL, type="sba",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
-sbaSIM2 <- data.frc(trainSIM2, method="crost", h=18, w=NULL, type="sba",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
-sbaSIM3 <- data.frc(trainSIM3, method="crost", h=18, w=NULL, type="sba",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
-sbaSIM4 <- data.frc(trainSIM4, method="crost", h=18, w=NULL, type="sba",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
 
-sbaMAN <- data.frc(trainMAN, method="crost", h=45, w=NULL, type="sba",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
-sbaBRAF <- data.frc(trainBRAF, method="crost", h=25, w=NULL, type="sba",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
-sbaAUTO <- data.frc(trainAUTO, method="crost", h=7, w=NULL, type="sba",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
-sbaOIL <- data.frc(trainOIL, method="crost", h=17, w=NULL, type="sba",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+####          SBA on SIM1 data. ####
+sbaSIM1 <- data.frc(trainSIM1, method="crost", h=18, w=NULL, type="sba",cost="mar",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+
+####          SBA on SIM2 data. ####
+sbaSIM2 <- data.frc(trainSIM2, method="crost", h=18, w=NULL, type="sba",cost="mar",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+
+####          SBA on SIM3 data. ####
+sbaSIM3 <- data.frc(trainSIM3, method="crost", h=18, w=NULL, type="sba",cost="mar",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+
+####          SBA on SIM4 data. ####
+sbaSIM4 <- data.frc(trainSIM4, method="crost", h=18, w=NULL, type="sba",cost="mar",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+MSE(t(testSIM4[3]),t(sbaSIM4))
+MASE(t(testSIM4[3]),t(sbaSIM4), mean(abs(t(trainSIM4[3]))))
+RMSSE(t(testSIM4[3]),t(sbaSIM4), mean(abs(t(trainSIM4[3]))))
+
+
+# Inventory performance measures.
+targetfillrates <- c(qnorm(0.75),qnorm(0.8),qnorm(0.85),qnorm(0.9),qnorm(0.95),qnorm(0.99),qnorm(0.999999))
+leadtimes <- as.data.frame(leadtimesSIM4)
+prices <- as.data.frame(pricesSIM4)
+
+i=3
+
+holdingcosts <- matrix(c(0.75,0.8,0.85,0.9,0.95,0.99,0.9999999),ncol = 7)
+for (i in 1:ncol(sbaSIM4)){
+  leadtimedemand <- mean(t(sbaSIM4[i])) * 1 # * leadtimes[,i]
+  stdev <- std(t(trainSIM4[i]))
+  stocklevelR <- (targetfillrates * stdev + leadtimedemand)
+  holdingcosts <- rbind(holdingcosts,(0.25 * (stocklevelR * prices[,i])))
+}
+SBAholdingSIM4 <- colSums(holdingcosts[-1,])
+ProcentualSBAholdingSIM4 <- SBAholdingSIM4/SBAholdingSIM4[1]
+
+SBAholdingSIM4 <- holdingcosts[-1,]
+
+# Achieved fill rate.
+fillrateSBASIM4 <- matrix(ncol=7)
+averagefillrateitem <- matrix(ncol=7)
+fillratefiller <- matrix(rep(NA,18),ncol=nrow(testSIM4))
+for(i in 1:ncol(testSIM4)){
+  for (j in 1:length(targetfillrates)){
+    fillratefiller <- stocklevelR[j] / t(testSIM4[i])[(t(testSIM4[i]) > 0)]
+    fillratefiller[fillratefiller >= 1] <- 1
+    averagefillrateitem[j] <- mean(fillratefiller)
+  }
+  fillrateSBASIM4 <- rbind(fillrateSBASIM4, averagefillrateitem)
+}
+achievedfillrateSBASIM4 <- colMeans(fillrateSBASIM4[-1,])
+
+achievedfillrateSBASIM4 <- fillrateSBASIM4[-1,]
+
+ServicelevelSBASIM4 <- data.frame(achievedfillrateSBASIM4 = achievedfillrateSBASIM4, SBAholdingSIM4 = ProcentualSBAholdingSIM4, targetfillrates = c(0.75,0.8,0.85,0.9,0.95,0.99,0.9999999))
+
+
+####          SBA on MAN data. ####
+sbaMAN <- data.frc(trainMAN, method="crost", h=45, w=NULL, type="sba",cost="mar",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+
+####          SBA on BRAF data. ####
+sbaBRAF <- data.frc(trainBRAF, method="crost", h=25, w=NULL, type="sba",cost="mar",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+
+####          SBA on AUTO data. ####
+sbaAUTO <- data.frc(trainAUTO, method="crost", h=7, w=NULL, type="sba",cost="mar",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+
+####          SBA on OIL data. ####
+sbaOIL <- data.frc(trainOIL, method="crost", h=17, w=NULL, type="sba",cost="mar",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
 
 print("time SBA total")
 proc.time() - ptm
 
-# TSB on all data sets. 
+####          TSB on all data sets. ####
 ptm <- proc.time()
-tsbSIM1 <- data.frc(trainSIM1, method="tsb", h=18, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
-tsbSIM2 <- data.frc(trainSIM2, method="tsb", h=18, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
-tsbSIM3 <- data.frc(trainSIM3, method="tsb", h=18, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
-tsbSIM4 <- data.frc(trainSIM4, method="tsb", h=18, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
 
-tsbMAN <- data.frc(trainMAN, method="tsb", h=45, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
-tsbBRAF <- data.frc(trainBRAF, method="tsb", h=25, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
-tsbAUTO <- data.frc(trainAUTO, method="tsb", h=7, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
-tsbOIL <- data.frc(trainOIL, method="tsb", h=17, w=NULL,init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out
+####          TSB on SIM1 data. ####
+tsbSIM1 <- data.frc(trainSIM1, method="tsb", h=18, w=NULL,cost="msr",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+
+####          TSB on SIM2 data. ####
+tsbSIM2 <- data.frc(trainSIM2, method="tsb", h=18, w=NULL,cost="msr",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+
+####          TSB on SIM3 data. ####
+tsbSIM3 <- data.frc(trainSIM3, method="tsb", h=18, w=NULL,cost="msr",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+
+####          TSB on SIM4 data. ####
+tsbSIM4 <- data.frc(trainSIM4, method="tsb", h=18, w=NULL,cost="msr",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+
+
+
+# Inventory performance measures.
+targetfillrates <- c(qnorm(0.75),qnorm(0.8),qnorm(0.85),qnorm(0.9),qnorm(0.95),qnorm(0.99),qnorm(0.999999))
+leadtimes <- as.data.frame(leadtimesSIM4)
+prices <- as.data.frame(pricesSIM4)
+
+i=3
+
+holdingcosts <- matrix(c(0.75,0.8,0.85,0.9,0.95,0.99,0.9999999),ncol = 7)
+for (i in 1:ncol(sbaSIM4)){
+  leadtimedemand <- mean(t(sbaSIM4[i])) * 1 # * leadtimes[,i]
+  stdev <- std(t(trainSIM4[i]))
+  stocklevelR <- (targetfillrates * stdev + leadtimedemand)
+  holdingcosts <- rbind(holdingcosts,(0.25 * (stocklevelR * prices[,i])))
+}
+SBAholdingSIM4 <- colSums(holdingcosts[-1,])
+ProcentualSBAholdingSIM4 <- SBAholdingSIM4/SBAholdingSIM4[1]
+
+SBAholdingSIM4 <- holdingcosts[-1,]
+
+# Achieved fill rate.
+fillrateSBASIM4 <- matrix(ncol=7)
+averagefillrateitem <- matrix(ncol=7)
+fillratefiller <- matrix(rep(NA,18),ncol=nrow(testSIM4))
+for(i in 1:ncol(testSIM4)){
+  for (j in 1:length(targetfillrates)){
+    fillratefiller <- stocklevelR[j] / t(testSIM4[i])[(t(testSIM4[i]) > 0)]
+    fillratefiller[fillratefiller >= 1] <- 1
+    averagefillrateitem[j] <- mean(fillratefiller)
+  }
+  fillrateSBASIM4 <- rbind(fillrateSBASIM4, averagefillrateitem)
+}
+achievedfillrateSBASIM4 <- colMeans(fillrateSBASIM4[-1,])
+
+achievedfillrateSBASIM4 <- fillrateSBASIM4[-1,]
+
+ServicelevelSBASIM4 <- data.frame(achievedfillrateSBASIM4 = achievedfillrateSBASIM4, SBAholdingSIM4 = ProcentualSBAholdingSIM4, targetfillrates = c(0.75,0.8,0.85,0.9,0.95,0.99,0.9999999))
+
+
+
+
+####          TSB on MAN data. ####
+tsbMAN <- data.frc(trainMAN, method="tsb", h=45, w=NULL,cost="msr",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+
+
+####          TSB on BRAF data. ####
+tsbBRAF <- data.frc(trainBRAF, method="tsb", h=25, w=NULL,cost="msr",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+
+
+####          TSB on AUTO data. ####
+tsbAUTO <- data.frc(trainAUTO, method="tsb", h=7, w=NULL,cost="msr",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
+
+
+####          TSB on OIL data. ####
+tsbOIL <- data.frc(trainOIL, method="tsb", h=17, w=NULL,cost="msr",init="naive", init.opt=TRUE, na.rm=TRUE)$frc.out
 
 print("time TSB total")
 proc.time() - ptm
 
-# Willemain bootstrapping on all data sets.
+####          Willemain bootstrapping on all data sets. ####
 
 # Create a running index and timer.
 i=1
@@ -577,145 +986,1051 @@ for(i in 1:ncol(seqOIL)){
 print("time Willemain total")
 proc.time() - ptm
 
-
-############################################## After this the code is still experimental and in progress. ###########################################################
-
-
-
-# Machine learning method (Single hidden layer MLP) on all data sets.
+####          Machine learning method (Single hidden layer MLP) on all data sets. ####
 # Normalizing the data to 0-1 for the MLP, ignoring NA's for the OIL dataset using a custom function.
 normalize <- function(x) {
   return ((x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE)))}
 
-nntrainSIM1 <- normalizeData(trainSIM1, type = "0_1")
-nntrainSIM2 <- normalizeData(trainSIM2, type = "0_1")
-nntrainSIM3 <- normalizeData(trainSIM3, type = "0_1")
-nntrainSIM4 <- normalizeData(trainSIM4, type = "0_1")
-nntrainMAN  <- normalizeData(trainMAN, type = "0_1")
-nntrainBRAF <- normalizeData(trainBRAF, type = "0_1")
-nntrainAUTO <- normalizeData(trainAUTO, type = "0_1")
-nntrainOIL <- trainOIL
+nndataSIM1 <- normalizeData(SIM1, type = "0_1")
+nndataSIM2 <- normalizeData(SIM2, type = "0_1")
+nndataSIM3 <- normalizeData(SIM3, type = "0_1")
+nndataSIM4 <- normalizeData(SIM4, type = "0_1")
+nndataMAN  <- normalizeData(MAN, type = "0_1")
+nndataBRAF <- normalizeData(BRAF, type = "0_1")
+nndataAUTO <- normalizeData(AUTO, type = "0_1")
+nndataOIL <- OIL
 n=1
-for (n in 1:ncol(trainOIL)){
-  nntrainOIL[[n]]  <- normalize(trainOIL[[n]])
+for (n in 1:ncol(OIL)){
+  nndataOIL[[n]]  <- normalize(OIL[[n]])
+}
+
+# Splitting the data again into test and train data.
+
+sampleSIM1 = round(nrow(SIM1)*.70) 
+nntrainSIM1 <- nndataSIM1[1:(sampleSIM1), ]
+nntestSIM1 <- nndataSIM1[-(1:(sampleSIM1)), ]
+
+nntrainSIM2 <- nndataSIM2[1:(sampleSIM1), ]
+nntestSIM2 <- nndataSIM2[-(1:(sampleSIM1)), ]
+
+nntrainSIM3 <- nndataSIM3[1:(sampleSIM1), ]
+nntestSIM3 <- nndataSIM3[-(1:(sampleSIM1)), ]
+
+nntrainSIM4 <- nndataSIM4[1:(sampleSIM1), ]
+nntestSIM4 <- nndataSIM4[-(1:(sampleSIM1)), ]
+
+# The split point is established for the industrial data sets individually, again.
+sampleMAN = round(nrow(MAN)*.70)
+nntrainMAN <- nndataMAN[1:(sampleMAN), ]
+nntestMAN <- nndataMAN[-(1:(sampleMAN)), ] 
+
+sampleBRAF = round(nrow(BRAF)*.70)
+nntrainBRAF <- nndataBRAF[1:(sampleBRAF), ]
+nntestBRAF <- nndataBRAF[-(1:(sampleBRAF)), ]
+
+sampleAUTO = round(nrow(AUTO)*.70)
+nntrainAUTO <- nndataAUTO[1:(sampleAUTO), ]
+nntestAUTO <- nndataAUTO[-(1:(sampleAUTO)), ]
+
+sampleOIL = round(nrow(OIL)*.70)
+nntrainOIL <- nndataOIL[1:(sampleOIL), ]
+nntestOIL <- nndataOIL[-(1:(sampleOIL)), ]
+
+####          SIM1 neural network application.          ####
+# Creating running indices and new variables.
+nndata <- matrix(ncol = 6)
+i <- 1
+t <- 1
+
+# For loop that creates a 6 column data set with the first 5 as inputs to the neural net and the 6th column as the target variable.
+for (i in 1:ncol(nntrainSIM1)){
+nndatavector <- nntrainSIM1[,i]
+for (t in 1:length(nndatavector)){
+inputs <- nndatavector[(0+t):(4+t)]
+outputs <- nndatavector[5+t]
+nndata <- rbind(nndata, c(inputs,outputs))  
+}}
+
+# Removing the rows with NA's. Since the data is large enough already to learn the characteristics of the data, this should not decrease accuracy.
+nndata <- na.omit(nndata)
+
+# Training the Neural Network.
+model <- mlp(nndata[,1:5], nndata[,6], size=3, learnFuncParams=c(0.1),
+             maxit=50)
+
+# Resetting the running indices to be sure.
+i <- 1
+t <- 1
+h <- nrow(testSIM1)
+predictionnnSIM1 <- matrix(ncol = h)
+
+# Predicting the forecast horizon with as input the last five values of a series and saving it as the predictionsnndata.
+for (i in 1:ncol(nntrainSIM1)){
+input <- tail(nntrainSIM1[,i],n=5)
+outputs <- vector()
+for (t in 1:nrow(testSIM1)) {
+output <- predict(model, t(input))
+outputs <- c(outputs, output)
+input <- c(input,output)
+input <- tail(input, n=5)
+}
+predictionnnSIM1 <- rbind(predictionnnSIM1, outputs)
+}
+
+# Denormalizing the data for evaluation of forecasts.
+normParamsSIM1 <- getNormParameters(nndataSIM1)
+predictionnnSIM1 <- t(predictionnnSIM1)
+predictionnnSIM1 <- predictionnnSIM1[,-1]
+# Final predictions.
+predictionnnSIM1 <- denormalizeData(predictionnnSIM1, normParamsSIM1)
+nntestSIM1 <- denormalizeData(nntestSIM1, normParamsSIM1)
+
+####          SIM2 neural network application.          ####
+# Creating running indices and new variables.
+nndata <- matrix(ncol = 6)
+i <- 1
+t <- 1
+
+# For loop that creates a 6 column data set with the first 5 as inputs to the neural net and the 6th column as the target variable.
+for (i in 1:ncol(nntrainSIM2)){
+  nndatavector <- nntrainSIM2[,i]
+  for (t in 1:length(nndatavector)){
+    inputs <- nndatavector[(0+t):(4+t)]
+    outputs <- nndatavector[5+t]
+    nndata <- rbind(nndata, c(inputs,outputs))  
+  }}
+
+# Removing the rows with NA's. Since the data is large enough already to learn the characteristics of the data, this should not decrease accuracy.
+nndata <- na.omit(nndata)
+
+# Training the Neural Network.
+model <- mlp(nndata[,1:5], nndata[,6], size=3, learnFuncParams=c(0.1),
+             maxit=50)
+
+# Resetting the running indices to be sure.
+i <- 1
+t <- 1
+h <- nrow(testSIM2)
+predictionnnSIM2 <- matrix(ncol = h)
+
+# Predicting the forecast horizon with as input the last five values of a series and saving it as the predictionsnndata.
+for (i in 1:ncol(nntrainSIM2)){
+  input <- tail(nntrainSIM2[,i],n=5)
+  outputs <- vector()
+  for (t in 1:nrow(testSIM2)) {
+    output <- predict(model, t(input))
+    outputs <- c(outputs, output)
+    input <- c(input,output)
+    input <- tail(input, n=5)
+  }
+  predictionnnSIM2 <- rbind(predictionnnSIM2, outputs)
+}
+
+# Denormalizing the data for evaluation of forecasts.
+normParamsSIM2 <- getNormParameters(nndataSIM2)
+predictionnnSIM2 <- t(predictionnnSIM2)
+predictionnnSIM2 <- predictionnnSIM2[,-1]
+# Final predictions.
+predictionnnSIM2 <- denormalizeData(predictionnnSIM2, normParamsSIM2)
+nntestSIM2 <- denormalizeData(nntestSIM2, normParamsSIM2)
+
+
+####          SIM3 neural network application.          ####
+
+# Creating running indices and new variables.
+nndata <- matrix(ncol = 6)
+i <- 1
+t <- 1
+
+# For loop that creates a 6 column data set with the first 5 as inputs to the neural net and the 6th column as the target variable.
+for (i in 1:ncol(nntrainSIM3)){
+  nndatavector <- nntrainSIM3[,i]
+  for (t in 1:length(nndatavector)){
+    inputs <- nndatavector[(0+t):(4+t)]
+    outputs <- nndatavector[5+t]
+    nndata <- rbind(nndata, c(inputs,outputs))  
+  }}
+
+# Removing the rows with NA's. Since the data is large enough already to learn the characteristics of the data, this should not decrease accuracy.
+nndata <- na.omit(nndata)
+
+# Training the Neural Network.
+model <- mlp(nndata[,1:5], nndata[,6], size=3, learnFuncParams=c(0.1),
+             maxit=50)
+
+# Resetting the running indices to be sure.
+i <- 1
+t <- 1
+h <- nrow(testSIM3)
+predictionnnSIM3 <- matrix(ncol = h)
+
+# Predicting the forecast horizon with as input the last five values of a series and saving it as the predictionsnndata.
+for (i in 1:ncol(nntrainSIM3)){
+  input <- tail(nntrainSIM3[,i],n=5)
+  outputs <- vector()
+  for (t in 1:nrow(testSIM3)) {
+    output <- predict(model, t(input))
+    outputs <- c(outputs, output)
+    input <- c(input,output)
+    input <- tail(input, n=5)
+  }
+  predictionnnSIM3 <- rbind(predictionnnSIM3, outputs)
+}
+
+# Denormalizing the data for evaluation of forecasts.
+normParamsSIM3 <- getNormParameters(nndataSIM3)
+predictionnnSIM3 <- t(predictionnnSIM3)
+predictionnnSIM3 <- predictionnnSIM3[,-1]
+# Final predictions.
+predictionnnSIM3 <- denormalizeData(predictionnnSIM3, normParamsSIM3)
+nntestSIM3 <- denormalizeData(nntestSIM3, normParamsSIM3)
+
+
+####          SIM4 neural network application.          ####
+
+# Creating running indices and new variables.
+nndata <- matrix(ncol = 6)
+i <- 1
+t <- 1
+
+# For loop that creates a 6 column data set with the first 5 as inputs to the neural net and the 6th column as the target variable.
+for (i in 1:ncol(nntrainSIM4)){
+  nndatavector <- nntrainSIM4[,i]
+  for (t in 1:length(nndatavector)){
+    inputs <- nndatavector[(0+t):(4+t)]
+    outputs <- nndatavector[5+t]
+    nndata <- rbind(nndata, c(inputs,outputs))  
+  }}
+
+# Removing the rows with NA's. Since the data is large enough already to learn the characteristics of the data, this should not decrease accuracy.
+nndata <- na.omit(nndata)
+
+# Training the Neural Network.
+model <- mlp(nndata[,1:5], nndata[,6], size=3, learnFuncParams=c(0.1),
+             maxit=50)
+
+# Resetting the running indices to be sure.
+i <- 1
+t <- 1
+h <- nrow(testSIM4)
+predictionnnSIM4 <- matrix(ncol = h)
+
+# Predicting the forecast horizon with as input the last five values of a series and saving it as the predictionsnndata.
+for (i in 1:ncol(nntrainSIM4)){
+  input <- tail(nntrainSIM4[,i],n=5)
+  outputs <- vector()
+  for (t in 1:nrow(testSIM4)) {
+    output <- predict(model, t(input))
+    outputs <- c(outputs, output)
+    input <- c(input,output)
+    input <- tail(input, n=5)
+  }
+  predictionnnSIM4 <- rbind(predictionnnSIM4, outputs)
+}
+
+# Denormalizing the data for evaluation of forecasts.
+normParamsSIM4 <- getNormParameters(nndataSIM4)
+predictionnnSIM4 <- t(predictionnnSIM4)
+predictionnnSIM4 <- predictionnnSIM4[,-1]
+# Final predictions.
+predictionnnSIM4 <- denormalizeData(predictionnnSIM4, normParamsSIM4)
+nntestSIM4 <- denormalizeData(nntestSIM4, normParamsSIM4)
+
+
+####          MAN neural network application.          ####
+
+# Creating running indices and new variables.
+nndata <- matrix(ncol = 6)
+i <- 1
+t <- 1
+
+# For loop that creates a 6 column data set with the first 5 as inputs to the neural net and the 6th column as the target variable.
+for (i in 1:ncol(nntrainMAN)){
+  nndatavector <- nntrainMAN[,i]
+  for (t in 1:length(nndatavector)){
+    inputs <- nndatavector[(0+t):(4+t)]
+    outputs <- nndatavector[5+t]
+    nndata <- rbind(nndata, c(inputs,outputs))  
+  }}
+
+# Removing the rows with NA's. Since the data is large enough already to learn the characteristics of the data, this should not decrease accuracy.
+nndata <- na.omit(nndata)
+
+# Training the Neural Network.
+model <- mlp(nndata[,1:5], nndata[,6], size=3, learnFuncParams=c(0.1),
+             maxit=50)
+
+# Resetting the running indices to be sure.
+i <- 1
+t <- 1
+h <- nrow(testMAN)
+predictionnnMAN <- matrix(ncol = h)
+
+# Predicting the forecast horizon with as input the last five values of a series and saving it as the predictionsnndata.
+for (i in 1:ncol(nntrainMAN)){
+  input <- tail(nntrainMAN[,i],n=5)
+  outputs <- vector()
+  for (t in 1:nrow(testMAN)) {
+    output <- predict(model, t(input))
+    outputs <- c(outputs, output)
+    input <- c(input,output)
+    input <- tail(input, n=5)
+  }
+  predictionnnMAN <- rbind(predictionnnMAN, outputs)
+}
+
+# Denormalizing the data for evaluation of forecasts.
+normParamsMAN <- getNormParameters(nndataMAN)
+predictionnnMAN <- t(predictionnnMAN)
+predictionnnMAN <- predictionnnMAN[,-1]
+# Final predictions.
+predictionnnMAN <- denormalizeData(predictionnnMAN, normParamsMAN)
+nntestMAN <- denormalizeData(nntestMAN, normParamsMAN)
+
+####          BRAF neural network application.          ####
+
+# Creating running indices and new variables.
+nndata <- matrix(ncol = 6)
+i <- 1
+t <- 1
+
+# For loop that creates a 6 column data set with the first 5 as inputs to the neural net and the 6th column as the target variable.
+for (i in 1:ncol(nntrainBRAF)){
+  nndatavector <- nntrainBRAF[,i]
+  for (t in 1:length(nndatavector)){
+    inputs <- nndatavector[(0+t):(4+t)]
+    outputs <- nndatavector[5+t]
+    nndata <- rbind(nndata, c(inputs,outputs))  
+  }}
+
+# Removing the rows with NA's. Since the data is large enough already to learn the characteristics of the data, this should not decrease accuracy.
+nndata <- na.omit(nndata)
+
+# Training the Neural Network.
+model <- mlp(nndata[,1:5], nndata[,6], size=3, learnFuncParams=c(0.1),
+             maxit=50)
+
+# Resetting the running indices to be sure.
+i <- 1
+t <- 1
+h <- nrow(testBRAF)
+predictionnnBRAF <- matrix(ncol = h)
+
+# Predicting the forecast horizon with as input the last five values of a series and saving it as the predictionsnndata.
+for (i in 1:ncol(nntrainBRAF)){
+  input <- tail(nntrainBRAF[,i],n=5)
+  outputs <- vector()
+  for (t in 1:nrow(testBRAF)) {
+    output <- predict(model, t(input))
+    outputs <- c(outputs, output)
+    input <- c(input,output)
+    input <- tail(input, n=5)
+  }
+  predictionnnBRAF <- rbind(predictionnnBRAF, outputs)
+}
+
+# Denormalizing the data for evaluation of forecasts.
+normParamsBRAF <- getNormParameters(nndataBRAF)
+predictionnnBRAF <- t(predictionnnBRAF)
+predictionnnBRAF <- predictionnnBRAF[,-1]
+# Final predictions.
+predictionnnBRAF <- denormalizeData(predictionnnBRAF, normParamsBRAF)
+nntestBRAF <- denormalizeData(nntestBRAF, normParamsBRAF)
+
+####          AUTO neural network application.          ####
+
+# Creating running indices and new variables.
+nndata <- matrix(ncol = 6)
+i <- 1
+t <- 1
+
+# For loop that creates a 6 column data set with the first 5 as inputs to the neural net and the 6th column as the target variable.
+for (i in 1:ncol(nntrainAUTO)){
+  nndatavector <- nntrainAUTO[,i]
+  for (t in 1:length(nndatavector)){
+    inputs <- nndatavector[(0+t):(4+t)]
+    outputs <- nndatavector[5+t]
+    nndata <- rbind(nndata, c(inputs,outputs))  
+  }}
+
+# Removing the rows with NA's. Since the data is large enough already to learn the characteristics of the data, this should not decrease accuracy.
+nndata <- na.omit(nndata)
+
+# Training the Neural Network.
+model <- mlp(nndata[,1:5], nndata[,6], size=3, learnFuncParams=c(0.1),
+             maxit=50)
+
+# Resetting the running indices to be sure.
+i <- 1
+t <- 1
+h <- nrow(testAUTO)
+predictionnnAUTO <- matrix(ncol = h)
+
+# Predicting the forecast horizon with as input the last five values of a series and saving it as the predictionsnndata.
+for (i in 1:ncol(nntrainAUTO)){
+  input <- tail(nntrainAUTO[,i],n=5)
+  outputs <- vector()
+  for (t in 1:nrow(testAUTO)) {
+    output <- predict(model, t(input))
+    outputs <- c(outputs, output)
+    input <- c(input,output)
+    input <- tail(input, n=5)
+  }
+  predictionnnAUTO <- rbind(predictionnnAUTO, outputs)
+}
+
+# Denormalizing the data for evaluation of forecasts.
+normParamsAUTO <- getNormParameters(nndataAUTO)
+predictionnnAUTO <- t(predictionnnAUTO)
+predictionnnAUTO <- predictionnnAUTO[,-1]
+# Final predictions.
+predictionnnAUTO <- denormalizeData(predictionnnAUTO, normParamsAUTO)
+nntestAUTO <- denormalizeData(nntestAUTO, normParamsAUTO)
+
+####          OIL neural network application.          ####
+
+# Creating running indices and new variables.
+nndata <- matrix(ncol = 6)
+i <- 1
+t <- 1
+
+# For loop that creates a 6 column data set with the first 5 as inputs to the neural net and the 6th column as the target variable.
+for (i in 1:ncol(nntrainOIL)){
+  nndatavector <- nntrainOIL[,i]
+  for (t in 1:length(nndatavector)){
+    inputs <- nndatavector[(0+t):(4+t)]
+    outputs <- nndatavector[5+t]
+    nndata <- rbind(nndata, c(inputs,outputs))  
+  }}
+
+# Removing the rows with NA's. Since the data is large enough already to learn the characteristics of the data, this should not decrease accuracy.
+nndata <- na.omit(nndata)
+
+# Training the Neural Network.
+model <- mlp(nndata[,1:5], nndata[,6], size=3, learnFuncParams=c(0.1),
+             maxit=50)
+
+# Resetting the running indices to be sure.
+i <- 1
+t <- 1
+h <- nrow(testOIL)
+predictionnnOIL <- matrix(ncol = h)
+
+# Predicting the forecast horizon with as input the last five values of a series and saving it as the predictionsnndata.
+for (i in 1:ncol(nntrainOIL)){
+  input <- tail(nntrainOIL[,i],n=5)
+  outputs <- vector()
+  for (t in 1:nrow(testOIL)) {
+    output <- predict(model, t(input))
+    outputs <- c(outputs, output)
+    input <- c(input,output)
+    input <- tail(input, n=5)
+  }
+  predictionnnOIL <- rbind(predictionnnOIL, outputs)
+}
+
+# Denormalizing the data for evaluation of forecasts.
+normParamsOIL <- getNormParameters(nndataOIL)
+predictionnnOIL <- t(predictionnnOIL)
+predictionnnOIL <- predictionnnOIL[,-1]
+# Final predictions.
+predictionnnOIL <- denormalizeData(predictionnnOIL, normParamsOIL)
+nntestOIL <- denormalizeData(nntestOIL, normParamsOIL)
+
+
+####          SIM1 LightGBM method application.         ####
+
+# Creating running indices and new variables.
+lightgbmdata <- matrix(ncol = 6)
+i <- 1
+t <- 1
+
+# For loop that creates a 6 column data set with the first 5 as inputs to the neural net and the 6th column as the target variable.
+for (i in 1:ncol(nntrainSIM1)){
+  nndatavector <- nntrainSIM1[,i]
+  for (t in 1:length(nndatavector)){
+    inputs <- nndatavector[(0+t):(4+t)]
+    outputs <- nndatavector[5+t]
+    lightgbmdata <- rbind(lightgbmdata, c(inputs,outputs))  
+  }}
+
+# Removing the rows with NA's. Since the data is large enough already to learn the characteristics of the data, this should not decrease accuracy.
+lightgbmdata <- na.omit(lightgbmdata)
+lightgbmdata <- as.data.frame(lightgbmdata)
+
+# Setting the hyperparameters for the LightGBM model, based on the kaggle method.
+p <- list(objective = "regression",
+          metric ="rmse",
+          boosting = "gbdt",
+          force_row_wise = TRUE,
+          learning_rate = 1.0,
+          num_leaves = 128,
+          min_data = 100,
+          sub_feature = 0.8,
+          sub_row = 0.75,
+          bagging_freq = 1,
+          lambda_l2 = 0.1,
+          max_depth = 10,
+          nthread = 4)
+
+# Training the LightGBM algorithm.
+model <- lightgbm(
+  data = as.matrix(lightgbmdata[,(1:5)])
+  , params = p
+  , label = lightgbmdata$V6
+  , nrounds = 4000,
+  early_stopping_rounds = 400,
+  eval_freq = 400)
+
+# Resetting the running indices to be sure.
+i <- 1
+t <- 1
+h <- nrow(testSIM1)
+predictionLightGBMSIM1 <- matrix(ncol = h)
+
+# Predicting the forecast horizon with as input the last five values of a series and saving it as the predictiondata.
+for (i in 1:ncol(nntrainSIM1)){
+  input <- tail(nntrainSIM1[,i],n=5)
+  outputs <- vector()
+  for (t in 1:nrow(testSIM1)) {
+    output <- predict(model, t(input))
+    outputs <- c(outputs, output)
+    input <- c(input,output)
+    input <- tail(input, n=5)
+  }
+  predictionLightGBMSIM1 <- rbind(predictionLightGBMSIM1, outputs)
+}
+
+# Denormalizing the data for evaluation of forecasts.
+normParamsSIM1 <- getNormParameters(nndataSIM1)
+predictionLightGBMSIM1 <- t(predictionLightGBMSIM1)
+predictionLightGBMSIM1 <- predictionLightGBMSIM1[,-1]
+# Final predictions.
+predictionLightGBMSIM1 <- denormalizeData(predictionLightGBMSIM1, normParamsSIM1)
+lightgbmtestSIM1 <- denormalizeData(nntestSIM1, normParamsSIM1)
+
+
+####          SIM2 LightGBM method application.         ####
+
+# Creating running indices and new variables.
+lightgbmdata <- matrix(ncol = 6)
+i <- 1
+t <- 1
+
+# For loop that creates a 6 column data set with the first 5 as inputs to the neural net and the 6th column as the target variable.
+for (i in 1:ncol(nntrainSIM2)){
+  nndatavector <- nntrainSIM2[,i]
+  for (t in 1:length(nndatavector)){
+    inputs <- nndatavector[(0+t):(4+t)]
+    outputs <- nndatavector[5+t]
+    lightgbmdata <- rbind(lightgbmdata, c(inputs,outputs))  
+  }}
+
+# Removing the rows with NA's. Since the data is large enough already to learn the characteristics of the data, this should not decrease accuracy.
+lightgbmdata <- na.omit(lightgbmdata)
+lightgbmdata <- as.data.frame(lightgbmdata)
+
+# Setting the hyperparameters for the LightGBM model, based on the kaggle method.
+p <- list(objective = "regression",
+          metric ="rmse",
+          boosting = "gbdt",
+          force_row_wise = TRUE,
+          learning_rate = 1.0,
+          num_leaves = 128,
+          min_data = 100,
+          sub_feature = 0.8,
+          sub_row = 0.75,
+          bagging_freq = 1,
+          lambda_l2 = 0.1,
+          max_depth = 10,
+          nthread = 4)
+
+# Training the LightGBM algorithm.
+model <- lightgbm(
+  data = as.matrix(lightgbmdata[,(1:5)])
+  , params = p
+  , label = lightgbmdata$V6
+  , nrounds = 4000,
+  early_stopping_rounds = 400,
+  eval_freq = 400)
+
+# Resetting the running indices to be sure.
+i <- 1
+t <- 1
+h <- nrow(testSIM2)
+predictionLightGBMSIM2 <- matrix(ncol = h)
+
+# Predicting the forecast horizon with as input the last five values of a series and saving it as the predictiondata.
+for (i in 1:ncol(nntrainSIM2)){
+  input <- tail(nntrainSIM2[,i],n=5)
+  outputs <- vector()
+  for (t in 1:nrow(testSIM2)) {
+    output <- predict(model, t(input))
+    outputs <- c(outputs, output)
+    input <- c(input,output)
+    input <- tail(input, n=5)
+  }
+  predictionLightGBMSIM2 <- rbind(predictionLightGBMSIM2, outputs)
+}
+
+# Denormalizing the data for evaluation of forecasts.
+normParamsSIM2 <- getNormParameters(nndataSIM2)
+predictionLightGBMSIM2 <- t(predictionLightGBMSIM2)
+predictionLightGBMSIM2 <- predictionLightGBMSIM2[,-1]
+# Final predictions.
+predictionLightGBMSIM2 <- denormalizeData(predictionLightGBMSIM2, normParamsSIM2)
+lightgbmtestSIM2 <- denormalizeData(nntestSIM2, normParamsSIM2)
+
+
+
+####          SIM3 LightGBM method application.         ####
+
+# Creating running indices and new variables.
+lightgbmdata <- matrix(ncol = 6)
+i <- 1
+t <- 1
+
+# For loop that creates a 6 column data set with the first 5 as inputs to the neural net and the 6th column as the target variable.
+for (i in 1:ncol(nntrainSIM3)){
+  nndatavector <- nntrainSIM3[,i]
+  for (t in 1:length(nndatavector)){
+    inputs <- nndatavector[(0+t):(4+t)]
+    outputs <- nndatavector[5+t]
+    lightgbmdata <- rbind(lightgbmdata, c(inputs,outputs))  
+  }}
+
+# Removing the rows with NA's. Since the data is large enough already to learn the characteristics of the data, this should not decrease accuracy.
+lightgbmdata <- na.omit(lightgbmdata)
+lightgbmdata <- as.data.frame(lightgbmdata)
+
+# Setting the hyperparameters for the LightGBM model, based on the kaggle method.
+p <- list(objective = "regression",
+          metric ="rmse",
+          boosting = "gbdt",
+          force_row_wise = TRUE,
+          learning_rate = 1.0,
+          num_leaves = 128,
+          min_data = 100,
+          sub_feature = 0.8,
+          sub_row = 0.75,
+          bagging_freq = 1,
+          lambda_l2 = 0.1,
+          max_depth = 10,
+          nthread = 4)
+
+# Training the LightGBM algorithm.
+model <- lightgbm(
+  data = as.matrix(lightgbmdata[,(1:5)])
+  , params = p
+  , label = lightgbmdata$V6
+  , nrounds = 4000,
+  early_stopping_rounds = 400,
+  eval_freq = 400)
+
+# Resetting the running indices to be sure.
+i <- 1
+t <- 1
+h <- nrow(testSIM3)
+predictionLightGBMSIM3 <- matrix(ncol = h)
+
+# Predicting the forecast horizon with as input the last five values of a series and saving it as the predictiondata.
+for (i in 1:ncol(nntrainSIM3)){
+  input <- tail(nntrainSIM3[,i],n=5)
+  outputs <- vector()
+  for (t in 1:nrow(testSIM3)) {
+    output <- predict(model, t(input))
+    outputs <- c(outputs, output)
+    input <- c(input,output)
+    input <- tail(input, n=5)
+  }
+  predictionLightGBMSIM3 <- rbind(predictionLightGBMSIM3, outputs)
+}
+
+# Denormalizing the data for evaluation of forecasts.
+normParamsSIM3 <- getNormParameters(nndataSIM3)
+predictionLightGBMSIM3 <- t(predictionLightGBMSIM3)
+predictionLightGBMSIM3 <- predictionLightGBMSIM3[,-1]
+# Final predictions.
+predictionLightGBMSIM3 <- denormalizeData(predictionLightGBMSIM3, normParamsSIM3)
+lightgbmtestSIM3 <- denormalizeData(nntestSIM3, normParamsSIM3)
+
+
+
+####          SIM4 LightGBM method application.         ####
+
+# Creating running indices and new variables.
+lightgbmdata <- matrix(ncol = 6)
+i <- 1
+t <- 1
+
+# For loop that creates a 6 column data set with the first 5 as inputs to the neural net and the 6th column as the target variable.
+for (i in 1:ncol(nntrainSIM4)){
+  nndatavector <- nntrainSIM4[,i]
+  for (t in 1:length(nndatavector)){
+    inputs <- nndatavector[(0+t):(4+t)]
+    outputs <- nndatavector[5+t]
+    lightgbmdata <- rbind(lightgbmdata, c(inputs,outputs))  
+  }}
+
+# Removing the rows with NA's. Since the data is large enough already to learn the characteristics of the data, this should not decrease accuracy.
+lightgbmdata <- na.omit(lightgbmdata)
+lightgbmdata <- as.data.frame(lightgbmdata)
+
+# Setting the hyperparameters for the LightGBM model, based on the kaggle method.
+p <- list(objective = "regression",
+          metric ="rmse",
+          boosting = "gbdt",
+          force_row_wise = TRUE,
+          learning_rate = 1.0,
+          num_leaves = 128,
+          min_data = 100,
+          sub_feature = 0.8,
+          sub_row = 0.75,
+          bagging_freq = 1,
+          lambda_l2 = 0.1,
+          max_depth = 10,
+          nthread = 4)
+
+# Training the LightGBM algorithm.
+model <- lightgbm(
+  data = as.matrix(lightgbmdata[,(1:5)])
+  , params = p
+  , label = lightgbmdata$V6
+  , nrounds = 4000,
+  early_stopping_rounds = 400,
+  eval_freq = 400)
+
+# Resetting the running indices to be sure.
+i <- 1
+t <- 1
+h <- nrow(testSIM4)
+predictionLightGBMSIM4 <- matrix(ncol = h)
+
+# Predicting the forecast horizon with as input the last five values of a series and saving it as the predictiondata.
+for (i in 1:ncol(nntrainSIM4)){
+  input <- tail(nntrainSIM4[,i],n=5)
+  outputs <- vector()
+  for (t in 1:nrow(testSIM4)) {
+    output <- predict(model, t(input))
+    outputs <- c(outputs, output)
+    input <- c(input,output)
+    input <- tail(input, n=5)
+  }
+  predictionLightGBMSIM4 <- rbind(predictionLightGBMSIM4, outputs)
+}
+
+# Denormalizing the data for evaluation of forecasts.
+normParamsSIM4 <- getNormParameters(nndataSIM4)
+predictionLightGBMSIM4 <- t(predictionLightGBMSIM4)
+predictionLightGBMSIM4 <- predictionLightGBMSIM4[,-1]
+# Final predictions.
+predictionLightGBMSIM4 <- denormalizeData(predictionLightGBMSIM4, normParamsSIM4)
+lightgbmtestSIM4 <- denormalizeData(nntestSIM4, normParamsSIM4)
+
+
+
+####          MAN LightGBM method application.         ####
+
+# Creating running indices and new variables.
+lightgbmdata <- matrix(ncol = 6)
+i <- 1
+t <- 1
+
+# For loop that creates a 6 column data set with the first 5 as inputs to the neural net and the 6th column as the target variable.
+for (i in 1:ncol(nntrainMAN)){
+  nndatavector <- nntrainMAN[,i]
+  for (t in 1:length(nndatavector)){
+    inputs <- nndatavector[(0+t):(4+t)]
+    outputs <- nndatavector[5+t]
+    lightgbmdata <- rbind(lightgbmdata, c(inputs,outputs))  
+  }}
+
+# Removing the rows with NA's. Since the data is large enough already to learn the characteristics of the data, this should not decrease accuracy.
+lightgbmdata <- na.omit(lightgbmdata)
+lightgbmdata <- as.data.frame(lightgbmdata)
+
+# Setting the hyperparameters for the LightGBM model, based on the kaggle method.
+p <- list(objective = "regression",
+          metric ="rmse",
+          boosting = "gbdt",
+          force_row_wise = TRUE,
+          learning_rate = 1.0,
+          num_leaves = 128,
+          min_data = 100,
+          sub_feature = 0.8,
+          sub_row = 0.75,
+          bagging_freq = 1,
+          lambda_l2 = 0.1,
+          max_depth = 10,
+          nthread = 4)
+
+# Training the LightGBM algorithm.
+model <- lightgbm(
+  data = as.matrix(lightgbmdata[,(1:5)])
+  , params = p
+  , label = lightgbmdata$V6
+  , nrounds = 4000,
+  early_stopping_rounds = 400,
+  eval_freq = 400)
+
+# Resetting the running indices to be sure.
+i <- 1
+t <- 1
+h <- nrow(testMAN)
+predictionLightGBMMAN <- matrix(ncol = h)
+
+# Predicting the forecast horizon with as input the last five values of a series and saving it as the predictiondata.
+for (i in 1:ncol(nntrainMAN)){
+  input <- tail(nntrainMAN[,i],n=5)
+  outputs <- vector()
+  for (t in 1:nrow(testMAN)) {
+    output <- predict(model, t(input))
+    outputs <- c(outputs, output)
+    input <- c(input,output)
+    input <- tail(input, n=5)
+  }
+  predictionLightGBMMAN <- rbind(predictionLightGBMMAN, outputs)
+}
+
+# Denormalizing the data for evaluation of forecasts.
+normParamsMAN <- getNormParameters(nndataMAN)
+predictionLightGBMMAN <- t(predictionLightGBMMAN)
+predictionLightGBMMAN <- predictionLightGBMMAN[,-1]
+# Final predictions.
+predictionLightGBMMAN <- denormalizeData(predictionLightGBMMAN, normParamsMAN)
+lightgbmtestMAN <- denormalizeData(nntestMAN, normParamsMAN)
+
+
+
+####          BRAF LightGBM method application.         ####
+
+# Creating running indices and new variables.
+lightgbmdata <- matrix(ncol = 6)
+i <- 1
+t <- 1
+
+# For loop that creates a 6 column data set with the first 5 as inputs to the neural net and the 6th column as the target variable.
+for (i in 1:ncol(nntrainBRAF)){
+  nndatavector <- nntrainBRAF[,i]
+  for (t in 1:length(nndatavector)){
+    inputs <- nndatavector[(0+t):(4+t)]
+    outputs <- nndatavector[5+t]
+    lightgbmdata <- rbind(lightgbmdata, c(inputs,outputs))  
+  }}
+
+# Removing the rows with NA's. Since the data is large enough already to learn the characteristics of the data, this should not decrease accuracy.
+lightgbmdata <- na.omit(lightgbmdata)
+lightgbmdata <- as.data.frame(lightgbmdata)
+
+# Setting the hyperparameters for the LightGBM model, based on the kaggle method.
+p <- list(objective = "regression",
+          metric ="rmse",
+          boosting = "gbdt",
+          force_row_wise = TRUE,
+          learning_rate = 1.0,
+          num_leaves = 128,
+          min_data = 100,
+          sub_feature = 0.8,
+          sub_row = 0.75,
+          bagging_freq = 1,
+          lambda_l2 = 0.1,
+          max_depth = 10,
+          nthread = 4)
+
+# Training the LightGBM algorithm.
+model <- lightgbm(
+  data = as.matrix(lightgbmdata[,(1:5)])
+  , params = p
+  , label = lightgbmdata$V6
+  , nrounds = 4000,
+  early_stopping_rounds = 400,
+  eval_freq = 400)
+
+# Resetting the running indices to be sure.
+i <- 1
+t <- 1
+h <- nrow(testBRAF)
+predictionLightGBMBRAF <- matrix(ncol = h)
+
+# Predicting the forecast horizon with as input the last five values of a series and saving it as the predictiondata.
+for (i in 1:ncol(nntrainBRAF)){
+  input <- tail(nntrainBRAF[,i],n=5)
+  outputs <- vector()
+  for (t in 1:nrow(testBRAF)) {
+    output <- predict(model, t(input))
+    outputs <- c(outputs, output)
+    input <- c(input,output)
+    input <- tail(input, n=5)
+  }
+  predictionLightGBMBRAF <- rbind(predictionLightGBMBRAF, outputs)
+}
+
+# Denormalizing the data for evaluation of forecasts.
+normParamsBRAF <- getNormParameters(nndataBRAF)
+predictionLightGBMBRAF <- t(predictionLightGBMBRAF)
+predictionLightGBMBRAF <- predictionLightGBMBRAF[,-1]
+# Final predictions.
+predictionLightGBMBRAF <- denormalizeData(predictionLightGBMBRAF, normParamsBRAF)
+lightgbmtestBRAF <- denormalizeData(nntestBRAF, normParamsBRAF)
+
+
+
+####          AUTO LightGBM method application.         ####
+
+# Creating running indices and new variables.
+lightgbmdata <- matrix(ncol = 6)
+i <- 1
+t <- 1
+
+# For loop that creates a 6 column data set with the first 5 as inputs to the neural net and the 6th column as the target variable.
+for (i in 1:ncol(nntrainAUTO)){
+  nndatavector <- nntrainAUTO[,i]
+  for (t in 1:length(nndatavector)){
+    inputs <- nndatavector[(0+t):(4+t)]
+    outputs <- nndatavector[5+t]
+    lightgbmdata <- rbind(lightgbmdata, c(inputs,outputs))  
+  }}
+
+# Removing the rows with NA's. Since the data is large enough already to learn the characteristics of the data, this should not decrease accuracy.
+lightgbmdata <- na.omit(lightgbmdata)
+lightgbmdata <- as.data.frame(lightgbmdata)
+
+# Setting the hyperparameters for the LightGBM model, based on the kaggle method.
+p <- list(objective = "regression",
+          metric ="rmse",
+          boosting = "gbdt",
+          force_row_wise = TRUE,
+          learning_rate = 1.0,
+          num_leaves = 128,
+          min_data = 100,
+          sub_feature = 0.8,
+          sub_row = 0.75,
+          bagging_freq = 1,
+          lambda_l2 = 0.1,
+          max_depth = 10,
+          nthread = 4)
+
+# Training the LightGBM algorithm.
+model <- lightgbm(
+  data = as.matrix(lightgbmdata[,(1:5)])
+  , params = p
+  , label = lightgbmdata$V6
+  , nrounds = 4000,
+  early_stopping_rounds = 400,
+  eval_freq = 400)
+
+# Resetting the running indices to be sure.
+i <- 1
+t <- 1
+h <- nrow(testAUTO)
+predictionLightGBMAUTO <- matrix(ncol = h)
+
+# Predicting the forecast horizon with as input the last five values of a series and saving it as the predictiondata.
+for (i in 1:ncol(nntrainAUTO)){
+  input <- tail(nntrainAUTO[,i],n=5)
+  outputs <- vector()
+  for (t in 1:nrow(testAUTO)) {
+    output <- predict(model, t(input))
+    outputs <- c(outputs, output)
+    input <- c(input,output)
+    input <- tail(input, n=5)
+  }
+  predictionLightGBMAUTO <- rbind(predictionLightGBMAUTO, outputs)
+}
+
+# Denormalizing the data for evaluation of forecasts.
+normParamsAUTO <- getNormParameters(nndataAUTO)
+predictionLightGBMAUTO <- t(predictionLightGBMAUTO)
+predictionLightGBMAUTO <- predictionLightGBMAUTO[,-1]
+# Final predictions.
+predictionLightGBMAUTO <- denormalizeData(predictionLightGBMAUTO, normParamsAUTO)
+lightgbmtestAUTO <- denormalizeData(nntestAUTO, normParamsAUTO)
+
+
+
+####          OIL LightGBM method application.         ####
+
+# Creating running indices and new variables.
+lightgbmdata <- matrix(ncol = 6)
+i <- 1
+t <- 1
+
+# For loop that creates a 6 column data set with the first 5 as inputs to the neural net and the 6th column as the target variable.
+for (i in 1:ncol(nntrainOIL)){
+  nndatavector <- nntrainOIL[,i]
+  for (t in 1:length(nndatavector)){
+    inputs <- nndatavector[(0+t):(4+t)]
+    outputs <- nndatavector[5+t]
+    lightgbmdata <- rbind(lightgbmdata, c(inputs,outputs))  
+  }}
+
+# Removing the rows with NA's. Since the data is large enough already to learn the characteristics of the data, this should not decrease accuracy.
+lightgbmdata <- na.omit(lightgbmdata)
+lightgbmdata <- as.data.frame(lightgbmdata)
+
+# Setting the hyperparameters for the LightGBM model, based on the kaggle method.
+p <- list(objective = "regression",
+          metric ="rmse",
+          boosting = "gbdt",
+          force_row_wise = TRUE,
+          learning_rate = 1.0,
+          num_leaves = 128,
+          min_data = 100,
+          sub_feature = 0.8,
+          sub_row = 0.75,
+          bagging_freq = 1,
+          lambda_l2 = 0.1,
+          max_depth = 10,
+          nthread = 4)
+
+# Training the LightGBM algorithm.
+model <- lightgbm(
+  data = as.matrix(lightgbmdata[,(1:5)])
+  , params = p
+  , label = lightgbmdata$V6
+  , nrounds = 4000,
+  early_stopping_rounds = 400,
+  eval_freq = 400)
+
+# Resetting the running indices to be sure.
+i <- 1
+t <- 1
+h <- nrow(testSIM1)
+predictionLightGBMOIL <- matrix(ncol = h)
+
+# Predicting the forecast horizon with as input the last five values of a series and saving it as the predictiondata.
+for (i in 1:ncol(nntrainOIL)){
+  input <- tail(nntrainOIL[,i],n=5)
+  outputs <- vector()
+  for (t in 1:nrow(testOIL)) {
+    output <- predict(model, t(input))
+    outputs <- c(outputs, output)
+    input <- c(input,output)
+    input <- tail(input, n=5)
+  }
+  predictionLightGBMOIL <- rbind(predictionLightGBMOIL, outputs)
 }
 
 
-# Creating lagged variables that are used as the rolling input. 
-lagSIM1 <- L(SIM1,1:5)
-lagSIM1 <- lagSIM1[is.na(lagSIM1)]
-
-
-lags <- runner(
-  x = nntrainSIM1[,1], 
-  k = 5, # 5-days window
-)
-
-input <- c(1.00000000, 0.25000000, 0.28571429, 0.35714286, 0.32142857)
-output <- c(0.07142857)
-
-output <- timeseries_generator(
-  input,
-  input,
-  length=1,
-  batch_size = 10
-)
-
-install.packages("keras"
-)
-library(keras)
-  
-splitSIM1 <- splitForTrainingAndTest(input, output, ratio=0.15)
-
-splitSIM1 <- normTrainingAndTestSet(splitSIM1)
-model <- mlp(input, output, size=3, learnFuncParams=c(0.1),
-             maxit=1000)
-
-
-# Applying the MLP to the rolling input and output window. 
-
-
-nntrainSIM1[[1]]
-
-mlp(
-  lagSIM1,
-  y,
-  size = size,
-  maxit = 100,
-  initFunc = "Randomize_Weights",
-  initFuncParams = c(-0.3, 0.3),
-  learnFunc = "Std_Backpropagation",
-  learnFuncParams = c(0.2, 0),
-  updateFunc = "Topological_Order",
-  updateFuncParams = c(0),
-  hiddenActFunc = "Act_Logistic",
-  shufflePatterns = TRUE,
-  linOut = FALSE,
-  outputActFunc = if (linOut) "Act_Identity" else "Act_Logistic",
-  inputsTest = NULL,
-  targetsTest = NULL,
-  pruneFunc = NULL,
-  pruneFuncParams = NULL
-)
-
+# Saving the predictions without transposed and without column 1.
+predictionLightGBMOIL <- t(predictionLightGBMOIL)
+predictionLightGBMOIL <- predictionLightGBMOIL[,-1]
 
 # Denormalizing the data for evaluation of forecasts.
-normParamsnntrainSIM1 <- getNormParameters(nntrainSIM1)
-nntrainSIM1 <- denormalizeData(nntrainSIM1, normParamsnntrainSIM1)
+i=1
+for (i in 1:ncol(predictionLightGBMOIL)) {
+predictionLightGBMOIL[,i] <- predictionLightGBMOIL[,i] * (max(OIL[i], na.rm=TRUE) - min(OIL[i], na.rm=TRUE)) + min(OIL[i], na.rm=TRUE)
+}
 
-lagsim1 <- L(SIM1,1:5,fill=0)
-
-splitSIM1 <- splitForTrainingAndTest(lagsim1, SIM1, ratio=0.30)
-splitSIM1 <- normTrainingAndTestSet(splitSIM1)
-
-model <- mlp(splitSIM1$inputsTrain[,1], splitSIM1$targetsTrain[,1], size=3, learnFuncParams=c(0.1),
-             maxit=50, inputsTest=splitSIM1$inputsTest[,1], targetsTest=splitSIM1$targetsTest[,1])
-
-weightMatrix(model)
-extractNetInfo(model)
-
-nnpredictionsSIM1 <- predict(model,splitSIM1$inputsTest[,1])
-
-summary(nnpredictionsSIM1)
-
-View(splitSIM1$inputsTest[,1:5])
-View(splitSIM1$targetsTest[,1])
-View(splitSIM1$targetsTrain)
-
-model <- mlp(splitSIM1$inputsTrain[,1], splitSIM1$targetsTrain[,1], size=5, learnFuncParams=c(0.1),
-             maxit=1000)
-nnpredictionsSIM1 <- predict(model,splitSIM1$inputsTest[,1])
-
-
-
-mlp(
-  splitSIM1$inputsTrain[,1], 
-  splitSIM1$targetsTrain[,1],
-  size = size,
-  maxit = 100,
-  initFunc = "Randomize_Weights",
-  initFuncParams = c(-0.3, 0.3),
-  learnFunc = "Std_Backpropagation",
-  learnFuncParams = c(0.2, 0),
-  updateFunc = "Topological_Order",
-  updateFuncParams = c(0),
-  hiddenActFunc = "Act_Logistic",
-  shufflePatterns = TRUE,
-  linOut = FALSE,
-  outputActFunc = if (linOut) "Act_Identity" else "Act_Logistic",
-  inputsTest = NULL,
-  targetsTest = NULL,
-  pruneFunc = NULL,
-  pruneFuncParams = NULL
-)
-
-inputwindowx = 3
-outputwindowx = 1
-size = inputwindowx*1
+i=1
+for (i in 1:ncol(nntestOIL)) {
+  nntestOIL[,i] <- nntestOIL[,i] * (max(OIL[i], na.rm=TRUE) - min(OIL[i], na.rm=TRUE)) + min(OIL[i], na.rm=TRUE)
+}
 
 
 
 
 
-# LightGBM method on all data sets.
+
+
 
