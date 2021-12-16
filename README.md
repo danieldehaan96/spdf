@@ -1,5 +1,10 @@
 # spdf
-A respository with both industrial and simulated datasets on spare part demand forecasting, with the intention of benchmarking several intermittent demand forecasting methods on them.
+A repository with both industrial and simulated datasets on spare part demand forecasting, with the intention of benchmarking several intermittent demand forecasting methods on them.
 
 This repository will contain R-code snippets, links to R-code and packages used and the data sets used in my master thesis.
 The subject of the thesis is: Benchmarking spare part demand forecasting methods.
+
+Abstract of the thesis for context:
+The field of spare part demand forecasting focuses on methods that offer the optimal combination of reduced downtime and cost efficiency in a setting where demand is not stable. As newly developed methods enter the field, their ease of implementation and understanding needs to be put to the test. To check whether several methods would deserve more attention, this paper compares several spare parts demand forecasting methods on industrial and simulated data sets to layout their pros and cons. The used data sets are classified based on underlying data characteristics and the methods are benchmarked on forecasting accuracy and inventory performance. The methods that are showcased in this paper are Croston's method, Simple Exponential Smoothing (SES), the Syntetos-Boylan approximation (SBA), the Teunter-Syntetos-Babai method (TSB), Willemain's bootstrapping method, a machine learning method in the form of a Multi-Layer-Perceptron (MLP) and an approach based on the LightGBM Algorithm. SBA was the overall best performing method based on forecasting accuracy and the Willemain method was the overall best on inventory performance. The MLP and LightGBM methods were superior when extreme intermittency was present based on inventory performance, but their forecasting accuracy was lacking overall. The main findings of this research indicate that the pre-processing of the data, the type of performance measure used and the type of data the method is applied to all influence the performance of a method and that method selection should be done based on those variables. 
+
+If you are interested in the results, please contact Daniel de Haan through Linkedin.
