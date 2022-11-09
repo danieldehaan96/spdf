@@ -1,0 +1,241 @@
+
+###   CODE   ###
+
+####          Libraries used. ####
+
+library(xlsx)
+library(tsintermittent)
+library(lightgbm)
+library(readxl)
+library(boot)
+library(expm)
+library(igraph)
+library(matlab)
+library(markovchain)
+library(Rcpp)
+library(TraMineR)
+library(dplyr)
+library(RSNNS)
+library(tidyr)
+library(collapse)
+library(runner)
+library(ggplot2)
+library(data.table)
+library(greybox)
+library(beepr)
+library(knitr)
+
+# Set seed for reproducibility.
+set.seed(8377)
+
+####          Importing the simulated and industrial data sets. ####
+SIM1 <- as.data.frame(read_excel("~/SIM1.xlsx"))
+
+# Extracting price and leadtime vectors.
+pricesSIM1 <- SIM1[61,]
+leadtimesSIM1 <- 1
+SIM1 <- SIM1[-61,]
+
+####          Creating the test and train data sets. ####
+# As the sample size is the same for all simulated data sets, the sample from SIM1 can just be used for all SIM data sets.
+sampleSIM1 = round(nrow(SIM1)*.70) 
+trainSIM1 <- SIM1[1:(sampleSIM1), ]
+testSIM1 <- SIM1[-(1:(sampleSIM1)), ]
+
+
+# The forecast horizon is set to the amount of periods in the test sample.
+
+####          Croston on all data sets. ####
+ptm <- proc.time()
+
+####          Croston on SIM1 data ####
+
+h = 18
+CrostonSIM1 <- matrix(ncol = h)
+for (i in 1:ncol(trainSIM1)){
+  x <- trainSIM1[i]
+  prediction <- NULL
+  for (j in 1:h){
+    prediction <- rbind(prediction,crost(x,h=1, w=NULL,nop=2, type="croston",cost="mar",init="naive", init.opt=FALSE, na.rm=TRUE)$frc.out) 
+    x <- rbind(x,testSIM1[j,i])
+  }
+  CrostonSIM1 <- rbind(CrostonSIM1, t(prediction))
+}
+
+# Saving the predictions without transposed and without column 1.
+CrostonSIM1 <- t(CrostonSIM1)
+CrostonSIM1 <- CrostonSIM1[,-1]
+
+#Saving the output data
+save(CrostonSIM1,file="c:/Daan/CrostonSIM12.Rda")
+#Reload the output data
+#load("c:/Daan/CrostonSIM12.Rda")
+
+# Forecasting accuracy measures.
+CrostonMSESIM1 <- NULL
+CrostonMASESIM1 <- NULL
+CrostonRMSSESIM1 <- NULL
+for (i in 1:ncol(testSIM1)){
+  CrostonMSESIM1 <- cbind(CrostonMSESIM1,  MSE(t(testSIM1[i]),t(CrostonSIM1[,i])))
+  CrostonMASESIM1 <- cbind(CrostonMASESIM1,  MASE(t(testSIM1[i]),t(CrostonSIM1[,i]), mean(abs(t(trainSIM1[i])))))
+  CrostonRMSSESIM1 <- cbind(CrostonRMSSESIM1,  RMSSE(t(testSIM1[i]),t(CrostonSIM1[,i]), mean(abs(t(trainSIM1[i])))))
+}
+CrostonMSESIM1 <- mean(CrostonMSESIM1)
+CrostonMASESIM1 <- mean(CrostonMASESIM1)
+CrostonRMSSESIM1 <- mean(CrostonRMSSESIM1)
+print(c("SIM1", CrostonMSESIM1, CrostonMASESIM1, CrostonRMSSESIM1))
+
+# Inventory performance measures.
+targetfillrates <- c(qnorm(0.75),qnorm(0.8),qnorm(0.85),qnorm(0.9),qnorm(0.95),qnorm(0.99),qnorm(0.999999))
+leadtimes <- as.data.frame(leadtimesSIM1)
+prices <- as.data.frame(pricesSIM1)
+
+holdingcostsSIM1 <- matrix(c(0.75,0.8,0.85,0.9,0.95,0.99,0.9999999),ncol = 7)
+fillrateCrostonSIM1 <- matrix(ncol=7)
+averagefillrateitem <- matrix(ncol=7)
+fillratefiller <- matrix(rep(NA,nrow(testSIM1)),ncol=nrow(testSIM1))
+for (i in 1:ncol(CrostonSIM1)){
+  leadtimedemand <- mean(t(CrostonSIM1[,i]))
+  stdev <- std(t(trainSIM1[i]))
+  stocklevelR <- (targetfillrates * stdev + leadtimedemand)
+  holdingcostsSIM1 <- rbind(holdingcostsSIM1,(0.25 * (stocklevelR * prices[,i])))
+  for (j in 1:length(targetfillrates)){
+    fillratefiller <- stocklevelR[j] / t(testSIM1[i])[(t(testSIM1[i]) > 0)]
+    fillratefiller[fillratefiller >= 1] <- 1
+    averagefillrateitem[j] <- mean(fillratefiller)
+  }
+  fillrateCrostonSIM1 <- rbind(fillrateCrostonSIM1, averagefillrateitem)
+}
+CrostonholdingSIM1 <- colSums(holdingcostsSIM1[-1,])
+ProcentualCrostonholdingSIM1 <- CrostonholdingSIM1/CrostonholdingSIM1[1]
+achievedfillrateCrostonSIM1 <- colMeans(fillrateCrostonSIM1[-1,])
+ServicelevelCrostonSIM1 <- data.frame(achievedfillrate = achievedfillrateCrostonSIM1, holding = CrostonholdingSIM1, targetfillrates = c(0.75,0.8,0.85,0.9,0.95,0.99,0.9999999), method = "Croston")
+
+
+
+
+
+
+
+
+
+# Inventory performance measures.
+targetfillrates <- c(qnorm(0.75),qnorm(0.8),qnorm(0.85),qnorm(0.9),qnorm(0.95),qnorm(0.99),qnorm(0.999999))
+leadtimes <- as.data.frame(leadtimesSIM1)
+prices <- as.data.frame(pricesSIM1)
+
+holdingcostsSIM1Q <- matrix(c(0.75,0.8,0.85,0.9,0.95,0.99,0.9999999),ncol = 7)
+fillrateCrostonSIM1 <- matrix(ncol=7)
+averagefillrateitem <- matrix(ncol=7)
+fillratefiller <- matrix(rep(NA,nrow(testSIM1)),ncol=nrow(testSIM1))
+for (i in 1:ncol(CrostonSIM1)){
+  leadtimedemand <- mean(t(CrostonSIM1[,i]))
+  stdev <- std(t(trainSIM1[i]))
+  mu <- leadtimedemand
+  sigma <- stdev
+  k <- mu^2/sigma^2
+  lambda <- sigma^2 / mu
+  R <- matrix(c(0.75,0.8,0.85,0.9,0.95,0.99,0.9999999),ncol = 7)
+  Quantiles <- qgamma(R,shape = k, scale = lambda)
+  stocklevelR <- (targetfillrates * stdev + leadtimedemand)
+  holdingcostsSIM1Q <- rbind(holdingcostsSIM1Q,(0.25 * (Quantiles * prices[,i])))
+  for (j in 1:length(targetfillrates)){
+    fillratefiller <- Quantiles[j] / t(testSIM1[i])[(t(testSIM1[i]) > 0)]
+    fillratefiller[fillratefiller >= 1] <- 1
+    averagefillrateitem[j] <- mean(fillratefiller)
+  }
+  fillrateCrostonSIM1 <- rbind(fillrateCrostonSIM1, averagefillrateitem)
+}
+CrostonholdingSIM1Q <- colSums(holdingcostsSIM1Q[-1,])
+ProcentualCrostonholdingSIM1Q <- CrostonholdingSIM1Q/CrostonholdingSIM1Q[1]
+achievedfillrateCrostonSIM1Q <- colMeans(fillrateCrostonSIM1[-1,])
+ServicelevelCrostonSIM1 <- data.frame(achievedfillrate = achievedfillrateCrostonSIM1, holding = CrostonholdingSIM1, targetfillrates = c(0.75,0.8,0.85,0.9,0.95,0.99,0.9999999), method = "Croston")
+
+
+achievedfillrateCrostonSIM1
+achievedfillrateCrostonSIM1Q
+
+
+
+
+SIM1
+
+
+CrostonSIM1[,1]
+
+targetfillrates <- c(qnorm(0.75),qnorm(0.8),qnorm(0.85),qnorm(0.9),qnorm(0.95),qnorm(0.99),qnorm(0.999999))
+leadtimes <- as.data.frame(leadtimesSIM1)
+prices <- as.data.frame(pricesSIM1)
+
+holdingcostsSIM1 <- matrix(c(0.75,0.8,0.85,0.9,0.95,0.99,0.9999999),ncol = 7)
+fillrateCrostonSIM1 <- matrix(ncol=7)
+averagefillrateitem <- matrix(ncol=7)
+fillratefiller <- matrix(rep(NA,nrow(testSIM1)),ncol=nrow(testSIM1))
+
+leadtimedemand <- mean(t(CrostonSIM1[,1]))
+stdev <- std(t(trainSIM1[1]))
+stocklevelR <- (targetfillrates * stdev + leadtimedemand)
+for (j in 1:length(targetfillrates)){
+  fillratefiller <- Quantiles[j] / t(testSIM1[1])[(t(testSIM1[1]) > 0)]
+  fillratefiller[fillratefiller >= 1] <- 1
+  averagefillrateitem[j] <- mean(fillratefiller)
+}
+fillrateCrostonSIM1 <- rbind(fillrateCrostonSIM1, averagefillrateitem)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# the gamma distribution
+mu <- leadtimedemand
+sigma <- stdev
+
+k <- mu^2/sigma^2
+lambda <- sigma^2 / mu
+
+
+#CSl
+R <- matrix(c(0.75,0.8,0.85,0.9,0.95,0.99,0.9999999),ncol = 7)
+Quantiles <- qgamma(R,shape = k, scale = lambda)
+
+
+leadtimedemand <- mean(t(CrostonSIM1[,1]))
+stdev <- std(t(trainSIM1[1]))
+for (j in 1:length(targetfillrates)){
+  fillratefiller <- Quantiles[j] / t(testSIM1[1])[(t(testSIM1[1]) > 0)]
+  fillratefiller[fillratefiller >= 1] <- 1
+  averagefillrateitem[j] <- mean(fillratefiller)
+}
+fillrateCrostonSIM1Q <- rbind(fillrateCrostonSIM1, averagefillrateitem)
+
+
+
+
+ESC_function <- function(k, lambda, R){
+  ESC <- k*lambda - R - k*lambda*pgamma(R/lambda, shape = k+1, rate = 1) + R*pgamma(R/lambda, shape = k, rate=1)
+  return(ESC)
+}  
+
+
+
+Q = 1
+fillratetarget <- 0.75
+S <- 0
+
+
+Shortagepercycle
+
+while (Shortagepercycle > fillratetarget){
+  Shortagepercycle <- ESC_function(k,lambda,S) - ESC_function(k,lambda,S+Q)
+  S <- S+ 1}
+S
